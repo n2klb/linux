@@ -389,6 +389,13 @@ config COMMON_CLK_MT6858_IMP_IIC_WRAP
 	help
 	  This driver supports MediaTek MT6858 I2C clocks.
 
+config COMMON_CLK_MT6858_UFS
+	tristate "Clock driver for MediaTek MT6858 UFS"
+	depends on COMMON_CLK_MT6858
+	default COMMON_CLK_MT6858
+	help
+	  This driver supports MediaTek MT6858 UFS clocks.
+
 config COMMON_CLK_MT7622
 	tristate "Clock driver for MediaTek MT7622"
 	depends on ARCH_MEDIATEK || COMPILE_TEST
