@@ -111,7 +111,7 @@ static int mtu3_device_enable(struct mtu3 *mtu)
 		SSUSB_U2_PORT_HOST_SEL));
 
 	if (mtu->ssusb->dr_mode == USB_DR_MODE_OTG) {
-		mtu3_setbits(ibase, SSUSB_U2_CTRL(0), SSUSB_U2_PORT_OTG_SEL);
+		//mtu3_setbits(ibase, SSUSB_U2_CTRL(0), SSUSB_U2_PORT_OTG_SEL);
 		if (mtu->u3_capable)
 			mtu3_setbits(ibase, SSUSB_U3_CTRL(0),
 				     SSUSB_U3_PORT_DUAL_MODE);
@@ -660,7 +660,7 @@ static void mtu3_regs_init(struct mtu3 *mtu)
 	/* U2/U3 detected by HW */
 	mtu3_writel(mbase, U3D_DEVICE_CONF, 0);
 	/* vbus detected by HW */
-	mtu3_clrbits(mbase, U3D_MISC_CTRL, VBUS_FRC_EN | VBUS_ON);
+	mtu3_setbits(mbase, U3D_MISC_CTRL, VBUS_FRC_EN | VBUS_ON);
 	/* use new QMU format when HW version >= 0x1003 */
 	if (mtu->gen2cp)
 		mtu3_writel(mbase, U3D_QFCR, ~0x0);
