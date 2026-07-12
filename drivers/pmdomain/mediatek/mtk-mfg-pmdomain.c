@@ -9,6 +9,7 @@
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/container_of.h>
+#include <linux/cpuidle.h>
 #include <linux/iopoll.h>
 #include <linux/nvmem-provider.h>
 #include <linux/mailbox_client.h>
@@ -459,13 +460,26 @@ static int mtk_mfg_send_ipi(struct mtk_mfg *mfg, struct mtk_mfg_ipi_msg *msg)
 
 	msg->magic = mfg->ipi_magic;
 
+	/*
+	 * Prevent the CPU from entering the "system-vcore" idle state, which
+	 * appears to suspend the GPUEB coprocessor and may cause a timeout.
+	 * This is a bit of an overkill because it keeps all CPUs awake just
+	 * to avoid a deep idle state while polling for one command, but there
+	 * seems to be no other clean way to do this other than removing the
+	 * idle state entirely, which would consume more power over a longer
+	 * time period.
+	 */
+	cpuidle_pause_and_lock();
+
 	ret = mbox_send_message(mfg->gf_mbox->ch, msg);
 	if (ret < 0) {
+		cpuidle_resume_and_unlock();
 		dev_err(dev, "Cannot send GPUFreq IPI command: %pe\n", ERR_PTR(ret));
 		return ret;
 	}
 
 	wait = wait_for_completion_timeout(&mfg->gf_mbox->rx_done, msecs_to_jiffies(500));
+	cpuidle_resume_and_unlock();
 	if (!wait)
 		return -ETIMEDOUT;
 
