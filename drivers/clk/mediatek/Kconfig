@@ -390,6 +390,13 @@ config COMMON_CLK_MT6858_DISPSYS
 	  This driver supports MediaTek MT6858 dispsys/mminfra clocks
 	  needed for the display subsystem and multimedia support.
 
+config COMMON_CLK_MT6858_IMGSYS
+	tristate "Clock driver for MediaTek MT6858 imgsys"
+	depends on COMMON_CLK_MT6858
+	default COMMON_CLK_MT6858
+	help
+	  This driver supports MediaTek MT6858 imgsys1/2 and ipe clocks.
+
 config COMMON_CLK_MT6858_IMP_IIC_WRAP
 	tristate "Clock driver for MediaTek MT6858 imp_iic_wrap"
 	depends on COMMON_CLK_MT6858
