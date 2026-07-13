@@ -25,6 +25,7 @@
 #include <dt-bindings/iio/adc/mediatek,mt6358-auxadc.h>
 #include <dt-bindings/iio/adc/mediatek,mt6359-auxadc.h>
 #include <dt-bindings/iio/adc/mediatek,mt6363-auxadc.h>
+#include <dt-bindings/iio/adc/mediatek,mt6369-auxadc.h>
 
 #define AUXADC_AVG_TIME_US		10
 #define AUXADC_POLL_DELAY_US		100
@@ -413,6 +414,35 @@ static const u16 mt6363_auxadc_regs[] = {
 	[PMIC_AUXADC_SDMADC_CON0]	= 0x11c4,
 };
 
+static const struct iio_chan_spec mt6369_auxadc_channels[] = {
+	MTK_PMIC_IIO_CHAN(MT6369, chip_temp, CHIP_TEMP, 4, 12, IIO_TEMP),
+	MTK_PMIC_IIO_CHAN(MT6369, acc_det, ACCDET, 5, 12, IIO_RESISTANCE),
+	MTK_PMIC_IIO_CHAN(MT6369, vcore_temp, VCORE_TEMP, 30, 12, IIO_TEMP),
+	MTK_PMIC_IIO_CHAN(MT6369, vproc_temp, VPROC_TEMP, 31, 12, IIO_TEMP),
+	MTK_PMIC_IIO_CHAN(MT6369, vgpu_temp, VGPU_TEMP, 32, 12, IIO_TEMP),
+	MTK_PMIC_IIO_CHAN(MT6369, hp_ofs_cal, HPOFS_CAL, 9, 15, IIO_RESISTANCE),
+
+	/* For VIN, ADC12 holds the result depending on which GPIO was activated */
+	MTK_PMIC_IIO_CHAN(MT6369, in1_v, VIN1, 37, 15, IIO_VOLTAGE),
+	MTK_PMIC_IIO_CHAN(MT6369, in2_v, VIN2, 37, 15, IIO_VOLTAGE),
+};
+
+static const struct mtk_pmic_auxadc_chan mt6369_auxadc_ch_desc[] = {
+	MTK_PMIC_ADC_CHAN(CHIP_TEMP, PMIC_AUXADC_RQST0, 4, PMIC_AUXADC_ADC0, 15, 32, 1, 1),
+	MTK_PMIC_ADC_CHAN(ACCDET, PMIC_AUXADC_RQST0, 5, PMIC_AUXADC_ADC0, 15, 32, 1, 1),
+	MTK_PMIC_ADC_CHAN(VCORE_TEMP, PMIC_AUXADC_RQST3, 0, PMIC_AUXADC_ADC0, 15, 32, 1, 1),
+	MTK_PMIC_ADC_CHAN(VPROC_TEMP, PMIC_AUXADC_RQST3, 1, PMIC_AUXADC_ADC0, 15, 32, 1, 1),
+	MTK_PMIC_ADC_CHAN(VGPU_TEMP, PMIC_AUXADC_RQST3, 2, PMIC_AUXADC_ADC0, 15, 32, 1, 1),
+	MTK_PMIC_ADC_CHAN(HPOFS_CAL, PMIC_AUXADC_RQST1, 1, PMIC_AUXADC_ADC0, 15, 256, 1, 1),
+
+	MTK_PMIC_ADC_EXT_CHAN(VIN1,
+			      PMIC_AUXADC_RQST1, 4, PMIC_AUXADC_ADC0, 15,
+			      PMIC_AUXADC_SDMADC_CON0, 1, MT6363_PULLUP_RES_OPEN, 32, 1, 1),
+	MTK_PMIC_ADC_EXT_CHAN(VIN2,
+			      PMIC_AUXADC_RQST1, 4, PMIC_AUXADC_ADC0, 15,
+			      PMIC_AUXADC_SDMADC_CON0, 2, MT6363_PULLUP_RES_OPEN, 32, 1, 1),
+};
+
 static const struct iio_chan_spec mt6373_auxadc_channels[] = {
 	MTK_PMIC_IIO_CHAN(MT6363, chip_temp, CHIP_TEMP, 4, 12, IIO_TEMP),
 	MTK_PMIC_IIO_CHAN(MT6363, vcore_temp, VCORE_TEMP, 38, 12, IIO_TEMP),
@@ -587,6 +617,17 @@ static const struct mtk_pmic_auxadc_info mt6363_chip_info = {
 	.channels = mt6363_auxadc_channels,
 	.num_channels = ARRAY_SIZE(mt6363_auxadc_channels),
 	.desc = mt6363_auxadc_ch_desc,
+	.regs = mt6363_auxadc_regs,
+	.is_spmi = true,
+	.no_reset = true,
+	.vref_mV = 1840,
+};
+
+static const struct mtk_pmic_auxadc_info mt6369_chip_info = {
+	.model_name = "MT6369",
+	.channels = mt6369_auxadc_channels,
+	.num_channels = ARRAY_SIZE(mt6369_auxadc_channels),
+	.desc = mt6369_auxadc_ch_desc,
 	.regs = mt6363_auxadc_regs,
 	.is_spmi = true,
 	.no_reset = true,
@@ -890,6 +931,7 @@ static const struct of_device_id mt6359_auxadc_of_match[] = {
 	{ .compatible = "mediatek,mt6358-auxadc", .data = &mt6358_chip_info },
 	{ .compatible = "mediatek,mt6359-auxadc", .data = &mt6359_chip_info },
 	{ .compatible = "mediatek,mt6363-auxadc", .data = &mt6363_chip_info },
+	{ .compatible = "mediatek,mt6369-auxadc", .data = &mt6369_chip_info },
 	{ .compatible = "mediatek,mt6373-auxadc", .data = &mt6373_chip_info },
 	{ }
 };
