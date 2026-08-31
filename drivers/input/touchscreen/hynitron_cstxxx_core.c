@@ -14,33 +14,13 @@
 
 #include <linux/delay.h>
 #include <linux/err.h>
-#include <linux/gpio/consumer.h>
-#include <linux/i2c.h>
 #include <linux/interrupt.h>
-#include <linux/input.h>
 #include <linux/input/mt.h>
-#include <linux/input/touchscreen.h>
 #include <linux/module.h>
 #include <linux/property.h>
 #include <linux/unaligned.h>
 
-/* Per chip data */
-struct hynitron_ts_chip_data {
-	unsigned int max_touch_num;
-	u32 ic_chkcode;
-	int (*firmware_info)(struct i2c_client *client);
-	int (*bootloader_enter)(struct i2c_client *client);
-	void (*report_touch)(struct i2c_client *client);
-};
-
-/* Data generic to all (supported and non-supported) controllers. */
-struct hynitron_ts_data {
-	const struct hynitron_ts_chip_data *chip;
-	struct i2c_client *client;
-	struct input_dev *input_dev;
-	struct touchscreen_properties prop;
-	struct gpio_desc *reset_gpio;
-};
+#include "hynitron_cstxxx.h"
 
 /*
  * Since I have no datasheet, these values are guessed and/or assumed
@@ -63,15 +43,12 @@ struct hynitron_ts_data {
 #define CST3XX_TOUCH_DATA_STOP_CMD		0xab00d0
 #define CST3XX_TOUCH_COUNT_MASK			GENMASK(6, 0)
 
-
 /*
  * Hard coded reset delay value of 20ms not IC dependent in
  * vendor driver.
  */
-static void hyn_reset_proc(struct i2c_client *client, int delay)
+static void hyn_reset_proc(struct hynitron_ts_data *ts_data, int delay)
 {
-	struct hynitron_ts_data *ts_data = i2c_get_clientdata(client);
-
 	gpiod_set_value_cansleep(ts_data->reset_gpio, 1);
 	msleep(20);
 	gpiod_set_value_cansleep(ts_data->reset_gpio, 0);
@@ -81,10 +58,9 @@ static void hyn_reset_proc(struct i2c_client *client, int delay)
 
 static irqreturn_t hyn_interrupt_handler(int irq, void *dev_id)
 {
-	struct i2c_client *client = dev_id;
-	struct hynitron_ts_data *ts_data = i2c_get_clientdata(client);
+	struct hynitron_ts_data *ts_data = dev_id;
 
-	ts_data->chip->report_touch(client);
+	ts_data->chip->report_touch(ts_data);
 
 	return IRQ_HANDLED;
 }
@@ -98,74 +74,34 @@ static void hyn_report_contact(struct hynitron_ts_data *ts_data, u8 id,
 	input_report_abs(ts_data->input_dev, ABS_MT_TOUCH_MAJOR, w);
 }
 
-/*
- * The vendor driver would retry twice before failing to read or write
- * to the i2c device.
- */
-
-static int cst3xx_i2c_write(struct i2c_client *client,
-			    unsigned char *buf, int len)
-{
-	int ret;
-	int retries = 0;
-
-	while (retries < 2) {
-		ret = i2c_master_send(client, buf, len);
-		if (ret == len)
-			return 0;
-		if (ret <= 0)
-			retries++;
-		else
-			break;
-	}
-
-	return ret < 0 ? ret : -EIO;
-}
-
-static int cst3xx_i2c_read_register(struct i2c_client *client, u16 reg,
-				    u8 *val, u16 len)
+static int cst3xx_read_register(struct hynitron_ts_data *ts_data, u16 reg,
+				u8 *val, u16 len)
 {
 	__le16 buf = cpu_to_le16(reg);
-	struct i2c_msg msgs[] = {
-		{
-			.addr = client->addr,
-			.flags = 0,
-			.len = 2,
-			.buf = (u8 *)&buf,
-		},
-		{
-			.addr = client->addr,
-			.flags = I2C_M_RD,
-			.len = len,
-			.buf = val,
-		}
-	};
 	int err;
-	int ret;
 
-	ret = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
-	if (ret == ARRAY_SIZE(msgs))
-		return 0;
+	err = ts_data->bus_ops->read(ts_data, (u8 *)&buf, 2, val, len);
+	if (err) {
+		dev_err(ts_data->dev,
+			"Error reading %d bytes from 0x%04x: %d\n",
+			len, reg, err);
+		return err;
+	}
 
-	err = ret < 0 ? ret : -EIO;
-	dev_err(&client->dev, "Error reading %d bytes from 0x%04x: %d (%d)\n",
-		len, reg, err, ret);
-
-	return err;
+	return 0;
 }
 
-static int cst3xx_firmware_info(struct i2c_client *client)
+static int cst3xx_firmware_info(struct hynitron_ts_data *ts_data)
 {
-	struct hynitron_ts_data *ts_data = i2c_get_clientdata(client);
 	int err;
 	u32 tmp;
-	unsigned char buf[4];
+	u8 buf[4];
 
 	/*
 	 * Tests suggest this command needed to read firmware regs.
 	 */
 	put_unaligned_le16(CST3XX_FIRMWARE_INFO_START_CMD, buf);
-	err = cst3xx_i2c_write(client, buf, 2);
+	err = ts_data->bus_ops->send(ts_data, buf, 2);
 	if (err)
 		return err;
 
@@ -175,14 +111,14 @@ static int cst3xx_firmware_info(struct i2c_client *client)
 	 * Read register for check-code to determine if device detected
 	 * correctly.
 	 */
-	err = cst3xx_i2c_read_register(client, CST3XX_FIRMWARE_CHK_CODE_REG,
-				       buf, 4);
+	err = cst3xx_read_register(ts_data, CST3XX_FIRMWARE_CHK_CODE_REG,
+				   buf, 4);
 	if (err)
 		return err;
 
 	tmp = get_unaligned_le32(buf);
 	if ((tmp & 0xffff0000) != ts_data->chip->ic_chkcode) {
-		dev_err(&client->dev, "%s ic mismatch, chkcode is %u\n",
+		dev_err(ts_data->dev, "%s ic mismatch, chkcode is %u\n",
 			__func__, tmp);
 		return -ENODEV;
 	}
@@ -190,14 +126,14 @@ static int cst3xx_firmware_info(struct i2c_client *client)
 	usleep_range(10000, 11000);
 
 	/* Read firmware version and test if firmware missing. */
-	err = cst3xx_i2c_read_register(client, CST3XX_FIRMWARE_VERSION_REG,
-				       buf, 4);
+	err = cst3xx_read_register(ts_data, CST3XX_FIRMWARE_VERSION_REG,
+				   buf, 4);
 	if (err)
 		return err;
 
 	tmp = get_unaligned_le32(buf);
 	if (tmp == CST3XX_FIRMWARE_VER_INVALID_VAL) {
-		dev_err(&client->dev, "Device firmware missing\n");
+		dev_err(ts_data->dev, "Device firmware missing\n");
 		return -ENODEV;
 	}
 
@@ -205,7 +141,7 @@ static int cst3xx_firmware_info(struct i2c_client *client)
 	 * Tests suggest cmd required to exit reading firmware regs.
 	 */
 	put_unaligned_le16(CST3XX_FIRMWARE_INFO_END_CMD, buf);
-	err = cst3xx_i2c_write(client, buf, 2);
+	err = ts_data->bus_ops->send(ts_data, buf, 2);
 	if (err)
 		return err;
 
@@ -214,27 +150,26 @@ static int cst3xx_firmware_info(struct i2c_client *client)
 	return 0;
 }
 
-static int cst3xx_bootloader_enter(struct i2c_client *client)
+static int cst3xx_bootloader_enter(struct hynitron_ts_data *ts_data)
 {
 	int err;
 	u8 retry;
 	u32 tmp = 0;
-	unsigned char buf[3];
+	u8 buf[3];
 
 	for (retry = 0; retry < 5; retry++) {
-		hyn_reset_proc(client, (7 + retry));
+		hyn_reset_proc(ts_data, (7 + retry));
 		/* set cmd to enter program mode */
 		put_unaligned_le24(CST3XX_BOOTLDR_PROG_CMD, buf);
-		err = cst3xx_i2c_write(client, buf, 3);
+		err = ts_data->bus_ops->send(ts_data, buf, 3);
 		if (err)
 			continue;
 
 		usleep_range(2000, 2500);
 
 		/* check whether in program mode */
-		err = cst3xx_i2c_read_register(client,
-					       CST3XX_BOOTLDR_PROG_CHK_REG,
-					       buf, 1);
+		err = cst3xx_read_register(ts_data, CST3XX_BOOTLDR_PROG_CHK_REG,
+					   buf, 1);
 		if (err)
 			continue;
 
@@ -244,25 +179,25 @@ static int cst3xx_bootloader_enter(struct i2c_client *client)
 	}
 
 	if (tmp != CST3XX_BOOTLDR_CHK_VAL) {
-		dev_err(&client->dev, "%s unable to enter bootloader mode\n",
+		dev_err(ts_data->dev, "%s unable to enter bootloader mode\n",
 			__func__);
 		return -ENODEV;
 	}
 
-	hyn_reset_proc(client, 40);
+	hyn_reset_proc(ts_data, 40);
 
 	return 0;
 }
 
-static int cst3xx_finish_touch_read(struct i2c_client *client)
+static int cst3xx_finish_touch_read(struct hynitron_ts_data *ts_data)
 {
-	unsigned char buf[3];
+	u8 buf[3];
 	int err;
 
 	put_unaligned_le24(CST3XX_TOUCH_DATA_STOP_CMD, buf);
-	err = cst3xx_i2c_write(client, buf, 3);
+	err = ts_data->bus_ops->send(ts_data, buf, 3);
 	if (err) {
-		dev_err(&client->dev,
+		dev_err(ts_data->dev,
 			"send read touch info ending failed: %d\n", err);
 		return err;
 	}
@@ -285,9 +220,8 @@ static int cst3xx_finish_touch_read(struct i2c_client *client)
  * 3 touches would look like this:
  * touch1[5]:touch_count[1]:chk_byte[1]:touch2[5]:touch3[5]:chk_byte[1]
  */
-static void cst3xx_touch_report(struct i2c_client *client)
+static void cst3xx_touch_report(struct hynitron_ts_data *ts_data)
 {
-	struct hynitron_ts_data *ts_data = i2c_get_clientdata(client);
 	u8 buf[28];
 	u8 finger_id, sw, w;
 	unsigned int x, y;
@@ -297,23 +231,23 @@ static void cst3xx_touch_report(struct i2c_client *client)
 	int err;
 
 	/* Read and validate the first bits of input data. */
-	err = cst3xx_i2c_read_register(client, CST3XX_TOUCH_DATA_PART_REG,
-				       buf, 28);
+	err = cst3xx_read_register(ts_data, CST3XX_TOUCH_DATA_PART_REG,
+				   buf, 28);
 	if (err ||
 	    buf[6] != CST3XX_TOUCH_DATA_CHK_VAL ||
 	    buf[0] == CST3XX_TOUCH_DATA_CHK_VAL) {
-		dev_err(&client->dev, "cst3xx touch read failure\n");
+		dev_err(ts_data->dev, "cst3xx touch read failure\n");
 		return;
 	}
 
 	/* Report to the device we're done reading the touch data. */
-	err = cst3xx_finish_touch_read(client);
+	err = cst3xx_finish_touch_read(ts_data);
 	if (err)
 		return;
 
 	touch_cnt = buf[5] & CST3XX_TOUCH_COUNT_MASK;
 	if (touch_cnt > ts_data->chip->max_touch_num) {
-		dev_err(&client->dev, "cst3xx invalid touch count (%d vs %d max)\n",
+		dev_err(ts_data->dev, "cst3xx invalid touch count (%d vs %d max)\n",
 			touch_cnt, ts_data->chip->max_touch_num);
 		return;
 	}
@@ -326,7 +260,7 @@ static void cst3xx_touch_report(struct i2c_client *client)
 	if (touch_cnt > 1) {
 		end_byte = touch_cnt * 5 + 2;
 		if (buf[end_byte] != CST3XX_TOUCH_DATA_CHK_VAL) {
-			dev_err(&client->dev, "cst3xx touch read failure\n");
+			dev_err(ts_data->dev, "cst3xx touch read failure\n");
 			return;
 		}
 	}
@@ -341,7 +275,7 @@ static void cst3xx_touch_report(struct i2c_client *client)
 
 		/* Sanity check we don't have more fingers than we expect */
 		if (finger_id >= ts_data->chip->max_touch_num) {
-			dev_err(&client->dev,
+			dev_err(ts_data->dev,
 				"cst3xx invalid finger id %d\n", finger_id);
 			return;
 		}
@@ -361,20 +295,19 @@ static void cst3xx_touch_report(struct i2c_client *client)
 	input_sync(ts_data->input_dev);
 }
 
-static int hyn_input_dev_init(struct i2c_client *client)
+static int hyn_input_dev_init(struct hynitron_ts_data *ts_data, unsigned int bus_type)
 {
-	struct hynitron_ts_data *ts_data = i2c_get_clientdata(client);
 	int err;
 
-	ts_data->input_dev = devm_input_allocate_device(&client->dev);
+	ts_data->input_dev = devm_input_allocate_device(ts_data->dev);
 	if (!ts_data->input_dev) {
-		dev_err(&client->dev, "Failed to allocate input device\n");
+		dev_err(ts_data->dev, "Failed to allocate input device\n");
 		return -ENOMEM;
 	}
 
 	ts_data->input_dev->name = "Hynitron cstxxx Touchscreen";
 	ts_data->input_dev->phys = "input/ts";
-	ts_data->input_dev->id.bustype = BUS_I2C;
+	ts_data->input_dev->id.bustype = bus_type;
 
 	input_set_drvdata(ts_data->input_dev, ts_data);
 
@@ -386,7 +319,7 @@ static int hyn_input_dev_init(struct i2c_client *client)
 	touchscreen_parse_properties(ts_data->input_dev, true, &ts_data->prop);
 
 	if (!ts_data->prop.max_x || !ts_data->prop.max_y) {
-		dev_err(&client->dev,
+		dev_err(ts_data->dev,
 			"Invalid x/y (%d, %d), using defaults\n",
 			ts_data->prop.max_x, ts_data->prop.max_y);
 		ts_data->prop.max_x = 1152;
@@ -401,14 +334,14 @@ static int hyn_input_dev_init(struct i2c_client *client)
 				  ts_data->chip->max_touch_num,
 				  INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
 	if (err) {
-		dev_err(&client->dev,
+		dev_err(ts_data->dev,
 			"Failed to initialize input slots: %d\n", err);
 		return err;
 	}
 
 	err = input_register_device(ts_data->input_dev);
 	if (err) {
-		dev_err(&client->dev,
+		dev_err(ts_data->dev,
 			"Input device registration failed: %d\n", err);
 		return err;
 	}
@@ -416,88 +349,61 @@ static int hyn_input_dev_init(struct i2c_client *client)
 	return 0;
 }
 
-static int hyn_probe(struct i2c_client *client)
+int hyn_probe(struct device *dev, struct hynitron_ts_data *ts_data,
+	      int irq, const struct hynitron_ts_bus_ops *bus_ops,
+	      unsigned int bus_type)
 {
-	struct hynitron_ts_data *ts_data;
 	int err;
 
-	ts_data = devm_kzalloc(&client->dev, sizeof(*ts_data), GFP_KERNEL);
-	if (!ts_data)
-		return -ENOMEM;
+	ts_data->dev = dev;
+	ts_data->bus_ops = bus_ops;
 
-	ts_data->client = client;
-	i2c_set_clientdata(client, ts_data);
-
-	ts_data->chip = device_get_match_data(&client->dev);
+	ts_data->chip = device_get_match_data(dev);
 	if (!ts_data->chip)
 		return -EINVAL;
 
-	ts_data->reset_gpio = devm_gpiod_get(&client->dev,
-					     "reset", GPIOD_OUT_LOW);
+	ts_data->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
 	err = PTR_ERR_OR_ZERO(ts_data->reset_gpio);
 	if (err) {
-		dev_err(&client->dev, "request reset gpio failed: %d\n", err);
+		dev_err(dev, "request reset gpio failed: %d\n", err);
 		return err;
 	}
 
-	hyn_reset_proc(client, 60);
+	hyn_reset_proc(ts_data, 60);
 
-	err = ts_data->chip->bootloader_enter(client);
+	err = ts_data->chip->bootloader_enter(ts_data);
 	if (err < 0)
 		return err;
 
-	err = hyn_input_dev_init(client);
+	err = hyn_input_dev_init(ts_data, bus_type);
 	if (err < 0)
 		return err;
 
-	err = ts_data->chip->firmware_info(client);
+	err = ts_data->chip->firmware_info(ts_data);
 	if (err < 0)
 		return err;
 
-	err = devm_request_threaded_irq(&client->dev, client->irq,
-					NULL, hyn_interrupt_handler,
-					IRQF_ONESHOT,
-					"Hynitron Touch Int", client);
+	err = devm_request_threaded_irq(dev, irq, NULL, hyn_interrupt_handler,
+					IRQF_ONESHOT, "Hynitron Touch Int",
+					ts_data);
 	if (err) {
-		dev_err(&client->dev, "failed to request IRQ: %d\n", err);
+		dev_err(dev, "failed to request IRQ: %d\n", err);
 		return err;
 	}
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(hyn_probe);
 
-static const struct hynitron_ts_chip_data cst3xx_data = {
+const struct hynitron_ts_chip_data cst3xx_data = {
 	.max_touch_num		= 5,
 	.ic_chkcode		= 0xcaca0000,
 	.firmware_info		= &cst3xx_firmware_info,
 	.bootloader_enter	= &cst3xx_bootloader_enter,
 	.report_touch		= &cst3xx_touch_report,
 };
-
-static const struct i2c_device_id hyn_tpd_id[] = {
-	{ .name = "hynitron_ts" },
-	{ /* sentinel */ },
-};
-MODULE_DEVICE_TABLE(i2c, hyn_tpd_id);
-
-static const struct of_device_id hyn_dt_match[] = {
-	{ .compatible = "hynitron,cst340", .data = &cst3xx_data },
-	{ /* sentinel */ },
-};
-MODULE_DEVICE_TABLE(of, hyn_dt_match);
-
-static struct i2c_driver hynitron_i2c_driver = {
-	.driver = {
-		.name = "Hynitron-TS",
-		.of_match_table = hyn_dt_match,
-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
-	},
-	.id_table = hyn_tpd_id,
-	.probe = hyn_probe,
-};
-
-module_i2c_driver(hynitron_i2c_driver);
+EXPORT_SYMBOL_GPL(cst3xx_data);
 
 MODULE_AUTHOR("Chris Morgan");
-MODULE_DESCRIPTION("Hynitron Touchscreen Driver");
+MODULE_DESCRIPTION("Hynitron Touchscreen Core Driver");
 MODULE_LICENSE("GPL");
