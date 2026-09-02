@@ -30,7 +30,6 @@ struct hynitron_ts_chip_data {
 	u32 ic_chkcode;
 	int (*firmware_info)(struct i2c_client *client);
 	int (*bootloader_enter)(struct i2c_client *client);
-	int (*init_input)(struct i2c_client *client);
 	void (*report_touch)(struct i2c_client *client);
 };
 
@@ -88,6 +87,15 @@ static irqreturn_t hyn_interrupt_handler(int irq, void *dev_id)
 	ts_data->chip->report_touch(client);
 
 	return IRQ_HANDLED;
+}
+
+static void hyn_report_contact(struct hynitron_ts_data *ts_data, u8 id,
+			       unsigned int x, unsigned int y, u8 w)
+{
+	input_mt_slot(ts_data->input_dev, id);
+	input_mt_report_slot_state(ts_data->input_dev, MT_TOOL_FINGER, 1);
+	touchscreen_report_pos(ts_data->input_dev, &ts_data->prop, x, y, true);
+	input_report_abs(ts_data->input_dev, ABS_MT_TOUCH_MAJOR, w);
 }
 
 /*
@@ -246,15 +254,6 @@ static int cst3xx_bootloader_enter(struct i2c_client *client)
 	return 0;
 }
 
-static void cst3xx_report_contact(struct hynitron_ts_data *ts_data,
-				  u8 id, unsigned int x, unsigned int y, u8 w)
-{
-	input_mt_slot(ts_data->input_dev, id);
-	input_mt_report_slot_state(ts_data->input_dev, MT_TOOL_FINGER, 1);
-	touchscreen_report_pos(ts_data->input_dev, &ts_data->prop, x, y, true);
-	input_report_abs(ts_data->input_dev, ABS_MT_TOUCH_MAJOR, w);
-}
-
 static int cst3xx_finish_touch_read(struct i2c_client *client)
 {
 	unsigned char buf[3];
@@ -349,7 +348,7 @@ static void cst3xx_touch_report(struct i2c_client *client)
 
 		/* sw value of 0 means no touch, 0x03 means touch */
 		if (sw == CST3XX_TOUCH_DATA_TOUCH_VAL)
-			cst3xx_report_contact(ts_data, finger_id, x, y, w);
+			hyn_report_contact(ts_data, finger_id, x, y, w);
 
 		idx += 5;
 
@@ -362,7 +361,7 @@ static void cst3xx_touch_report(struct i2c_client *client)
 	input_sync(ts_data->input_dev);
 }
 
-static int cst3xx_input_dev_int(struct i2c_client *client)
+static int hyn_input_dev_init(struct i2c_client *client)
 {
 	struct hynitron_ts_data *ts_data = i2c_get_clientdata(client);
 	int err;
@@ -373,7 +372,7 @@ static int cst3xx_input_dev_int(struct i2c_client *client)
 		return -ENOMEM;
 	}
 
-	ts_data->input_dev->name = "Hynitron cst3xx Touchscreen";
+	ts_data->input_dev->name = "Hynitron cstxxx Touchscreen";
 	ts_data->input_dev->phys = "input/ts";
 	ts_data->input_dev->id.bustype = BUS_I2C;
 
@@ -447,7 +446,7 @@ static int hyn_probe(struct i2c_client *client)
 	if (err < 0)
 		return err;
 
-	err = ts_data->chip->init_input(client);
+	err = hyn_input_dev_init(client);
 	if (err < 0)
 		return err;
 
@@ -472,7 +471,6 @@ static const struct hynitron_ts_chip_data cst3xx_data = {
 	.ic_chkcode		= 0xcaca0000,
 	.firmware_info		= &cst3xx_firmware_info,
 	.bootloader_enter	= &cst3xx_bootloader_enter,
-	.init_input		= &cst3xx_input_dev_int,
 	.report_touch		= &cst3xx_touch_report,
 };
 
