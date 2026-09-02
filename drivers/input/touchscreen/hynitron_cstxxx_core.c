@@ -43,6 +43,14 @@
 #define CST3XX_TOUCH_DATA_STOP_CMD		0xab00d0
 #define CST3XX_TOUCH_COUNT_MASK			GENMASK(6, 0)
 
+#define CST66XX_FACTORY_MODE_REG		0xd00000
+#define CST66XX_DEBUG_MODE_REG			0xd00001
+#define CST66XX_STOP_CMD_REG			0xd00002
+#define CST66XX_LOW_POWER_MODE_REG		0xd00004
+#define CST66XX_GESTURE_MODE_REG		0xd0000c
+#define CST66XX_FIRMWARE_INFO_REG		0xd00300
+#define CST66XX_TOUCH_DATA_REG			0xd00700
+
 /*
  * Hard coded reset delay value of 20ms not IC dependent in
  * vendor driver.
@@ -295,6 +303,142 @@ static void cst3xx_touch_report(struct hynitron_ts_data *ts_data)
 	input_sync(ts_data->input_dev);
 }
 
+static int cst66xx_write_cmd(struct hynitron_ts_data *ts_data, u32 reg, u8 val)
+{
+	__be32 buf = cpu_to_be32(reg << 8 | val);
+	int err;
+
+	err = ts_data->bus_ops->send(ts_data, (u8 *)&buf, 4);
+	if (err) {
+		dev_err(ts_data->dev, "Error writing to 0x%06x: %d\n",
+			reg, err);
+		return err;
+	}
+
+	return 0;
+}
+
+static int cst66xx_read_cmd(struct hynitron_ts_data *ts_data, u32 reg,
+			    u8 *val, u16 len)
+{
+	__be32 buf = cpu_to_be32(reg << 8);
+	int err;
+
+	err = ts_data->bus_ops->read(ts_data, (u8 *)&buf, 4, val, len);
+	if (err) {
+		dev_err(ts_data->dev,
+			"Error reading %d bytes from 0x%06x: %d\n",
+			len, reg, err);
+		return err;
+	}
+
+	return 0;
+}
+
+static int cst66xx_firmware_info(struct hynitron_ts_data *ts_data)
+{
+	u8 buf[50];
+	int err;
+	u32 tmp;
+
+	err = cst66xx_read_cmd(ts_data, CST66XX_FIRMWARE_INFO_REG, buf, 50);
+	if (err)
+		return err;
+
+	tmp = get_unaligned_le32(&buf[0]);
+	if ((tmp & 0xffff0000) != ts_data->chip->ic_chkcode) {
+		dev_err(ts_data->dev, "Invalid part number: 0x%08x\n", tmp);
+		return -ENODEV;
+	}
+
+	dev_info(ts_data->dev, "Part number: 0x%08x\n", tmp);
+
+	dev_info(ts_data->dev, "Firmware version: 0x%08x\n",
+		 get_unaligned_le32(&buf[32]));
+
+	dev_info(ts_data->dev, "Project ID: 0x%08x\n",
+		 get_unaligned_le32(&buf[36]));
+
+	dev_info(ts_data->dev, "Info: tx=%d rx=%d key=%d x=%d y=%d\n",
+		 buf[48], buf[49], buf[27], get_unaligned_le16(&buf[28]),
+		 get_unaligned_le16(&buf[30]));
+
+	return 0;
+}
+
+static void cst66xx_touch_report(struct hynitron_ts_data *ts_data)
+{
+	unsigned int key_cnt, finger_cnt;
+	unsigned int i, x, y, idx = 4;
+	u8 finger_id, sw, w;
+	u8 buf[4 + 10 * 5]; /* up to 10 touches */
+	u16 sum = 0x55;
+	int err;
+
+	/* Read and validate the input data. */
+	err = cst66xx_read_cmd(ts_data, CST66XX_TOUCH_DATA_REG, buf,
+			       sizeof(buf));
+	if (err) {
+		dev_err(ts_data->dev, "touch data read failure\n");
+		return;
+	}
+
+	err = cst66xx_write_cmd(ts_data, CST66XX_STOP_CMD_REG, 0xab);
+	if (err)
+		return;
+
+	finger_cnt = buf[3] & 0xf;
+	key_cnt = buf[3] >> 4;
+
+	for (i = 0; i < (key_cnt + finger_cnt) * 5; i++) {
+		sum += buf[idx + i];
+	}
+
+	if (get_unaligned_le16(&buf[0]) != sum) {
+		dev_err(ts_data->dev, "touch data checksum mismatch\n");
+		return;
+	}
+
+	if ((key_cnt + finger_cnt) > ts_data->chip->max_touch_num) {
+		dev_err(ts_data->dev, "cst66xx invalid touch count (%d+%d vs %d max)\n",
+			key_cnt, finger_cnt, ts_data->chip->max_touch_num);
+		return;
+	}
+
+	/*
+	 * The vendor driver allows up to 8 keys with configurable keycodes,
+	 * but only handles up to one key per report. Currently no known devices
+	 * use this.
+	 */
+	if (key_cnt > 0)
+		dev_warn_ratelimited(ts_data->dev, "key reporting not supported yet\n");
+
+	idx += key_cnt * 5;
+
+	for (i = 0; i < finger_cnt; i++) {
+		x = (buf[idx + 3] & 0x0f) << 8 | buf[idx + 0];
+		y = (buf[idx + 3] & 0xf0) << 4 | buf[idx + 1];
+		w = (buf[idx + 2] >> 3);
+		sw = buf[idx + 4] >> 4;
+		finger_id = buf[idx + 4] & 0x0f;
+
+		/* Sanity check we don't have more fingers than we expect */
+		if (finger_id >= ts_data->chip->max_touch_num) {
+			dev_err(ts_data->dev,
+				"cst66xx invalid finger id %d\n", finger_id);
+			return;
+		}
+
+		if (sw)
+			hyn_report_contact(ts_data, finger_id, x, y, w);
+
+		idx += 5;
+	}
+
+	input_mt_sync_frame(ts_data->input_dev);
+	input_sync(ts_data->input_dev);
+}
+
 static int hyn_input_dev_init(struct hynitron_ts_data *ts_data, unsigned int bus_type)
 {
 	int err;
@@ -371,9 +515,11 @@ int hyn_probe(struct device *dev, struct hynitron_ts_data *ts_data,
 
 	hyn_reset_proc(ts_data, 60);
 
-	err = ts_data->chip->bootloader_enter(ts_data);
-	if (err < 0)
-		return err;
+	if (ts_data->chip->bootloader_enter) {
+		err = ts_data->chip->bootloader_enter(ts_data);
+		if (err < 0)
+			return err;
+	}
 
 	err = hyn_input_dev_init(ts_data, bus_type);
 	if (err < 0)
@@ -403,6 +549,14 @@ const struct hynitron_ts_chip_data cst3xx_data = {
 	.report_touch		= &cst3xx_touch_report,
 };
 EXPORT_SYMBOL_GPL(cst3xx_data);
+
+const struct hynitron_ts_chip_data cst66xx_data = {
+	.max_touch_num		= 10,
+	.ic_chkcode		= 0xcaca0000,
+	.firmware_info		= &cst66xx_firmware_info,
+	.report_touch		= &cst66xx_touch_report,
+};
+EXPORT_SYMBOL_GPL(cst66xx_data);
 
 MODULE_AUTHOR("Chris Morgan");
 MODULE_DESCRIPTION("Hynitron Touchscreen Core Driver");
