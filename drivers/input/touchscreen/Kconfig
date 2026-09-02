@@ -479,6 +479,19 @@ config TOUCHSCREEN_HYNITRON_CSTXXX
 	  To compile this driver as a module, choose M here: the
 	  module will be called hynitron-cstxxx-i2c.
 
+config TOUCHSCREEN_HYNITRON_CSTXXX_SPI
+	tristate "Hynitron SPI touchscreen support"
+	depends on SPI
+	select TOUCHSCREEN_HYNITRON_CSTXXX_CORE
+	help
+	  Say Y here if you have a touchscreen using a Hynitron
+	  controller connected via SPI.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called hynitron-cstxxx-spi.
+
 config TOUCHSCREEN_HYNITRON_CST816X
 	tristate "Hynitron CST816x touchscreen"
 	depends on I2C
