@@ -75,6 +75,26 @@
 			wakeup-source;
 		};
 	};
+
+	touch_iovdd: regulator-touch-iovdd {
+		compatible = "regulator-fixed";
+		regulator-name = "touch_iovdd";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on; /* FIXME */
+		gpios = <&pio 130 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
+
+	touch_power: regulator-touch-power {
+		compatible = "regulator-fixed";
+		regulator-name = "touch_power";
+		regulator-min-microvolt = <2800000>;
+		regulator-max-microvolt = <2800000>;
+		regulator-always-on; /* FIXME */
+		gpios = <&pio 131 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+	};
 };
 
 &cpu0 {
@@ -414,11 +434,45 @@
 		};
 	};
 
+	spi3_pins: spi3-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO70__FUNC_SPI3_CLK>,
+				 <PINMUX_GPIO71__FUNC_GPIO71>, /* for cs-gpios */
+				 <PINMUX_GPIO72__FUNC_SPI3_MO>,
+				 <PINMUX_GPIO73__FUNC_SPI3_MI>;
+			bias-disable;
+		};
+	};
+
 	uart0_pins: uart0-pins {
 		pins {
 			pinmux = <PINMUX_GPIO49__FUNC_UTXD0>,
 				 <PINMUX_GPIO50__FUNC_URXD0>;
 		};
+	};
+};
+
+&spi3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi3_pins>;
+	cs-gpios = <&pio 71 GPIO_ACTIVE_LOW>;
+	mediatek,pad-select = <0>;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	status = "okay";
+
+	touchscreen@0 {
+		compatible = "hynitron,cst3556-spi";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+		interrupts-extended = <&pio 6 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&pio 137 GPIO_ACTIVE_LOW>;
+		touchscreen-size-x = <1030>;
+		touchscreen-size-y = <2271>;
+		io-supply = <&touch_iovdd>;
+		power-supply = <&touch_power>;
 	};
 };
 
