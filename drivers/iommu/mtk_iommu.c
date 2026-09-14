@@ -169,6 +169,7 @@ enum mtk_iommu_plat {
 	M4U_MT2712,
 	M4U_MT6779,
 	M4U_MT6795,
+	M4U_MT6858,
 	M4U_MT8167,
 	M4U_MT8173,
 	M4U_MT8183,
@@ -1605,12 +1606,26 @@ static const struct mtk_iommu_plat_data mt6795_data = {
 static const unsigned int mt8192_larb_region_msk[MT8192_MULTI_REGION_NR_MAX][MTK_LARB_NR_MAX] = {
 	[0] = {~0, ~0},				/* Region0: larb0/1 */
 	[1] = {0, 0, 0, 0, ~0, ~0, 0, ~0},	/* Region1: larb4/5/7 */
-	[2] = {0, 0, ~0, 0, 0, 0, 0, 0,		/* Region2: larb2/9/11/13/14/16/17/18/19/20 */
+	[2] = {0, 0, ~0, 0, 0, 0, 0, 0,		/* Region2: larb2/9/11/13/14/16/17/18/19/20/21 */
 	       0, ~0, 0, ~0, 0, ~(u32)(BIT(9) | BIT(10)), ~(u32)(BIT(4) | BIT(5)), 0,
-	       ~0, ~0, ~0, ~0, ~0},
+	       ~0, ~0, ~0, ~0, ~0, ~0},
 	[3] = {0},
 	[4] = {[13] = BIT(9) | BIT(10)},	/* larb13 port9/10 */
 	[5] = {[14] = BIT(4) | BIT(5)},		/* larb14 port4/5 */
+};
+
+static const struct mtk_iommu_plat_data mt6858_data = {
+	.m4u_plat	= M4U_MT6858,
+	.flags		= OUT_ORDER_WR_EN | HAS_SUB_COMM_2BITS | IOVA_34_EN |
+			  MTK_IOMMU_TYPE_MM | PGTABLE_PA_35_EN,
+	.hw_list	= &m4ulist,
+	.inv_sel_reg	= REG_MMU_INV_SEL_GEN2,
+	.banks_num	= 5,
+	.banks_enable	= {true, false, false, false, false},
+	.iova_region	= mt8192_multi_dom,
+	.iova_region_nr	= ARRAY_SIZE(mt8192_multi_dom),
+	.iova_region_larb_msk = mt8192_larb_region_msk,
+	/* FIXME: find correct mapping */
 };
 
 static const struct mtk_iommu_plat_data mt6893_data = {
@@ -1903,6 +1918,7 @@ static const struct of_device_id mtk_iommu_of_ids[] = {
 	{ .compatible = "mediatek,mt2712-m4u", .data = &mt2712_data},
 	{ .compatible = "mediatek,mt6779-m4u", .data = &mt6779_data},
 	{ .compatible = "mediatek,mt6795-m4u", .data = &mt6795_data},
+	{ .compatible = "mediatek,mt6858-iommu-disp", .data = &mt6858_data},
 	{ .compatible = "mediatek,mt6893-iommu-mm", .data = &mt6893_data},
 	{ .compatible = "mediatek,mt8167-m4u", .data = &mt8167_data},
 	{ .compatible = "mediatek,mt8173-m4u", .data = &mt8173_data},
