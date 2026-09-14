@@ -720,7 +720,11 @@ static void mtk_dsi_config_vdo_timing_per_frame_lp(struct mtk_dsi *dsi)
 		dsi_tmp_buf_bpp = 3;
 
 	da_hs_trail = dsi->phy_timing.da_hs_trail;
-	ps_wc = vm->hactive * dsi_tmp_buf_bpp;
+
+	if (dsi->dsc)
+		ps_wc = dsi->dsc->slice_chunk_size * dsi->dsc->slice_count;
+	else
+		ps_wc = vm->hactive * dsi_tmp_buf_bpp;
 
 	if (dsi->mode_flags & MIPI_DSI_MODE_VIDEO_SYNC_PULSE) {
 		horizontal_sync_active_byte =
@@ -845,7 +849,7 @@ static int mtk_dsi_set_dsc_params(struct mtk_dsi *dsi)
 		return -EINVAL;
 	}
 
-	if (dsc->bits_per_component != 8) {
+	if (dsc->bits_per_component != 8 && dsc->bits_per_component != 10) {
 		dev_err(dev, "%u bits per component is not supported\n",
 			dsc->bits_per_component);
 		return -EINVAL;
@@ -971,7 +975,6 @@ static int mtk_dsi_config_vdo_timing(struct mtk_dsi *dsi)
 	const struct mtk_dsi_driver_data *data = dsi->driver_data;
 	const u16 *reg_main = data->reg_main;
 	struct videomode *vm = &dsi->vm;
-	int ret;
 
 	writel(vm->vsync_len, dsi->regs + reg_main[DSI_VSA_NL]);
 	writel(vm->vback_porch, dsi->regs + reg_main[DSI_VBP_NL]);
@@ -983,15 +986,7 @@ static int mtk_dsi_config_vdo_timing(struct mtk_dsi *dsi)
 	else
 		mtk_dsi_config_vdo_timing_per_line_lp(dsi);
 
-	if (dsi->dsc) {
-		ret = mtk_dsi_set_dsc_params(dsi);
-		if (ret)
-			return ret;
-
-		mtk_dsi_ps_control(dsi, true);
-	} else {
-		mtk_dsi_ps_control(dsi, false);
-	}
+	mtk_dsi_ps_control(dsi, dsi->dsc && !data->support_per_frame_lp);
 
 	return 0;
 }
@@ -1118,8 +1113,24 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
 	}
 	bit_per_pixel = ret;
 
-	dsi->data_rate = DIV_ROUND_UP_ULL((u64)dsi->vm.pixelclock * bit_per_pixel,
-					  dsi->lanes);
+	if (dsi->dsc) {
+		u32 inactive, total;
+		u64 new;
+
+		ret = mtk_dsi_set_dsc_params(dsi);
+		if (ret)
+			return ret;
+
+		inactive = dsi->vm.hfront_porch + dsi->vm.hback_porch + dsi->vm.hsync_len;
+		new = dsi->vm.hactive * drm_dsc_get_bpp_int(dsi->dsc) + inactive * 24;
+		total = inactive + dsi->vm.hactive;
+
+		dsi->data_rate = DIV_ROUND_UP_ULL(new * dsi->vm.pixelclock / total,
+						  dsi->lanes);
+	} else {
+		dsi->data_rate = DIV_ROUND_UP_ULL((u64)dsi->vm.pixelclock * bit_per_pixel,
+						  dsi->lanes);
+	}
 
 	ret = clk_set_rate(dsi->hs_clk, dsi->data_rate);
 	if (ret < 0) {
@@ -1307,7 +1318,17 @@ mtk_dsi_bridge_mode_valid(struct drm_bridge *bridge,
 		return MODE_ERROR;
 
 	wanted_link_rate = mode->clock;
-	wanted_link_rate *= bpp;
+
+	if (dsi->dsc) {
+		u32 dsc_bpp = drm_dsc_get_bpp_int(dsi->dsc);
+		u32 inactive = mode->htotal - mode->hdisplay;
+
+		wanted_link_rate *= mode->hdisplay * dsc_bpp + inactive * 24;
+		wanted_link_rate /= mode->htotal;
+	} else {
+		wanted_link_rate *= bpp;
+	}
+
 	max_link_rate = data->max_link_rate_mbps;
 	max_link_rate *= dsi->lanes;
 	max_link_rate *= KILO;
