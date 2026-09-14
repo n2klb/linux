@@ -450,7 +450,8 @@ static int mtk_dvo_bridge_attach(struct drm_bridge *bridge,
 	return ret;
 }
 
-static void mtk_dvo_bridge_disable(struct drm_bridge *bridge)
+static void mtk_dvo_bridge_disable(struct drm_bridge *bridge,
+				   struct drm_atomic_commit *commit)
 {
 	struct mtk_dpi *dvo = bridge_to_dpi(bridge);
 
@@ -458,7 +459,8 @@ static void mtk_dvo_bridge_disable(struct drm_bridge *bridge)
 	mtk_dpi_power_off(dvo);
 }
 
-static void mtk_dvo_bridge_enable(struct drm_bridge *bridge)
+static void mtk_dvo_bridge_enable(struct drm_bridge *bridge,
+				  struct drm_atomic_commit *commit)
 {
 	struct mtk_dpi *dpi = bridge_to_dpi(bridge);
 	struct mtk_dpi_polarities dpi_pol;
@@ -545,8 +547,8 @@ static const struct drm_bridge_funcs mtk_dvo_bridge_funcs = {
 	.attach = mtk_dvo_bridge_attach,
 	.mode_set = mtk_dpi_bridge_mode_set,
 	.mode_valid = mtk_dvo_bridge_mode_valid,
-	.disable = mtk_dvo_bridge_disable,
-	.enable = mtk_dvo_bridge_enable,
+	.atomic_disable = mtk_dvo_bridge_disable,
+	.atomic_enable = mtk_dvo_bridge_enable,
 	.atomic_check = mtk_dpi_bridge_atomic_check,
 	.atomic_get_output_bus_fmts = mtk_dpi_bridge_atomic_get_output_bus_fmts,
 	.atomic_get_input_bus_fmts = mtk_dpi_bridge_atomic_get_input_bus_fmts,
