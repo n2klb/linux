@@ -1297,7 +1297,7 @@ static int mtk_crtc_init_multi_controller_properties(struct device *dev,
 	struct drm_crtc *crtc = &mtk_crtc->base;
 	unsigned long controllers_mask = 0;
 	struct mtk_drm_private *priv;
-	unsigned int i, j, k, z;
+	unsigned int i, j, k, z = 0;
 
 	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
 		u8 controller_id = mtk_crtc->ddp_comp[i]->controller_id;
