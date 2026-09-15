@@ -37,6 +37,7 @@
 #include "mtk_drm_drv.h"
 
 /* DSI_START */
+#define VM_CMD_START			BIT(16)
 
 /* DSI_INTEN */
 
@@ -46,6 +47,7 @@
 #define TE_RDY_INT_FLAG			BIT(2)
 #define VM_DONE_INT_FLAG		BIT(3)
 #define EXT_TE_RDY_INT_FLAG		BIT(4)
+#define VM_CMD_DONE_INT_FLAG		BIT(5)
 #define DSI_BUSY			BIT(31)
 
 /* DSI_CON_CTRL */
@@ -147,6 +149,7 @@
 
 /* DSI_VM_CMD_CON */
 #define VM_CMD_EN			BIT(0)
+#define TIME_SEL			BIT(2)
 #define TS_VFP_EN			BIT(5)
 
 /* DSI_SHADOW_DEBUG */
@@ -188,6 +191,9 @@
 #define MTK_DSI_DEFAULT_QOS_URGENT_LO_US	11
 #define MTK_DSI_DEFAULT_QOS_URGENT_HI_US	12
 
+/* Maximum length for command in video mode */
+#define MTK_DSI_VM_CMD_MAX_LEN			64
+
 #define MTK_DSI_HOST_IS_READ(type) \
 	((type == MIPI_DSI_GENERIC_READ_REQUEST_0_PARAM) || \
 	(type == MIPI_DSI_GENERIC_READ_REQUEST_1_PARAM) || \
@@ -228,6 +234,10 @@ enum mtk_dsi_main_regidx {
 
 enum mtk_dsi_adv_regidx {
 	DSI_VM_CMD_CON,
+	DSI_VM_CMDQ_00,
+	DSI_VM_CMDQ_10,
+	DSI_VM_CMDQ_20,
+	DSI_VM_CMDQ_30,
 	DSI_SHADOW_DEBUG,
 	DSI_CMDQ,
 	DSI_VDE,
@@ -351,24 +361,40 @@ static const u16 mtk_dsi_regs_main_v1[DSI_MAIN_REG_MAX] = {
 
 static const u16 mtk_dsi_regs_mt2701[DSI_ADV_REG_MAX] = {
 	[DSI_VM_CMD_CON] = 0x130,
+	[DSI_VM_CMDQ_00] = 0x134,
+	[DSI_VM_CMDQ_10] = 0x180,
+	[DSI_VM_CMDQ_20] = 0x1a0,
+	[DSI_VM_CMDQ_30] = 0x1b0,
 	[DSI_SHADOW_DEBUG] = 0,
 	[DSI_CMDQ] = 0x180,
 };
 
 static const u16 mtk_dsi_regs_mt8173[DSI_ADV_REG_MAX] = {
 	[DSI_VM_CMD_CON] = 0x130,
+	[DSI_VM_CMDQ_00] = 0x134,
+	[DSI_VM_CMDQ_10] = 0x180,
+	[DSI_VM_CMDQ_20] = 0x1a0,
+	[DSI_VM_CMDQ_30] = 0x1b0,
 	[DSI_SHADOW_DEBUG] = 0,
 	[DSI_CMDQ] = 0x200,
 };
 
 static const u16 mtk_dsi_regs_mt8183[DSI_ADV_REG_MAX] = {
 	[DSI_VM_CMD_CON] = 0x130,
+	[DSI_VM_CMDQ_00] = 0x134,
+	[DSI_VM_CMDQ_10] = 0x180,
+	[DSI_VM_CMDQ_20] = 0x1a0,
+	[DSI_VM_CMDQ_30] = 0x1b0,
 	[DSI_SHADOW_DEBUG] = 0x190,
 	[DSI_CMDQ] = 0x200,
 };
 
 static const u16 mtk_dsi_regs_mt8186[DSI_ADV_REG_MAX] = {
 	[DSI_VM_CMD_CON] = 0x200,
+	[DSI_VM_CMDQ_00] = 0x208,
+	[DSI_VM_CMDQ_10] = 0x218,
+	[DSI_VM_CMDQ_20] = 0x228,
+	[DSI_VM_CMDQ_30] = 0x238,
 	[DSI_SHADOW_DEBUG] = 0xc00,
 	[DSI_CMDQ] = 0xd00,
 };
@@ -421,6 +447,10 @@ static const u16 mtk_dsi_regs_qos_v2[DSI_QOS_REG_MAX] = {
 
 static const u16 mtk_dsi_regs_mt8196[DSI_ADV_REG_MAX] = {
 	[DSI_VM_CMD_CON] = 0x110,
+	[DSI_VM_CMDQ_00] = 0x118,
+	[DSI_VM_CMDQ_10] = 0x128,
+	[DSI_VM_CMDQ_20] = 0x138,
+	[DSI_VM_CMDQ_30] = 0x148,
 	[DSI_SHADOW_DEBUG] = 0xd0,
 	[DSI_CMDQ] = 0x400,
 	[DSI_VDE] = 0x3f8,
@@ -1009,7 +1039,8 @@ static void mtk_dsi_set_cmd_mode(struct mtk_dsi *dsi)
 
 static void mtk_dsi_set_interrupt_enable(struct mtk_dsi *dsi)
 {
-	u32 inten = LPRX_RD_RDY_INT_FLAG | CMD_DONE_INT_FLAG | VM_DONE_INT_FLAG;
+	u32 inten = LPRX_RD_RDY_INT_FLAG | CMD_DONE_INT_FLAG | VM_DONE_INT_FLAG |
+		    VM_CMD_DONE_INT_FLAG;
 
 	writel(inten, dsi->regs + dsi->driver_data->reg_main[DSI_INTEN]);
 }
@@ -1049,16 +1080,19 @@ static irqreturn_t mtk_dsi_irq(int irq, void *dev_id)
 	u32 status, tmp;
 	struct mtk_dsi *dsi = dev_id;
 	const u16 *reg_main = dsi->driver_data->reg_main;
-	const u32 flag = LPRX_RD_RDY_INT_FLAG | CMD_DONE_INT_FLAG | VM_DONE_INT_FLAG;
+	const u32 flag = LPRX_RD_RDY_INT_FLAG | CMD_DONE_INT_FLAG | VM_DONE_INT_FLAG |
+			 VM_CMD_DONE_INT_FLAG;
 
 	status = readl(dsi->regs + reg_main[DSI_INTSTA]) & flag;
 
-	if (status) {
+	if (status & ~VM_CMD_DONE_INT_FLAG) {
 		do {
 			mtk_dsi_mask(dsi, reg_main[DSI_RACK], RACK, RACK);
 			tmp = readl(dsi->regs + reg_main[DSI_INTSTA]);
 		} while (tmp & DSI_BUSY);
+	}
 
+	if (status) {
 		mtk_dsi_mask(dsi, reg_main[DSI_INTSTA], status, 0);
 		mtk_dsi_irq_data_set(dsi, status);
 		wake_up_interruptible(&dsi->irq_wait_queue);
@@ -1570,7 +1604,8 @@ static u32 mtk_dsi_recv_cnt(u8 type, u8 *read_data)
 	return 0;
 }
 
-static void mtk_dsi_cmdq(struct mtk_dsi *dsi, const struct mipi_dsi_msg *msg)
+static void mtk_dsi_cmdq(struct mtk_dsi *dsi, const struct mipi_dsi_msg *msg,
+			 bool is_vm)
 {
 	const struct mtk_dsi_driver_data *data = dsi->driver_data;
 	const char *tx_buf = msg->tx_buf;
@@ -1579,13 +1614,17 @@ static void mtk_dsi_cmdq(struct mtk_dsi *dsi, const struct mipi_dsi_msg *msg)
 	u8 type = msg->type;
 	u8 config;
 
-	if (MTK_DSI_HOST_IS_READ(type))
+	if (MTK_DSI_HOST_IS_READ(type) && !WARN_ON(is_vm))
 		config = BTA;
 	else
 		config = (msg->tx_len > 2) ? LONG_PACKET : SHORT_PACKET;
 
-	if (!(msg->flags & MIPI_DSI_MSG_USE_LPM))
-		config |= HSTX;
+	if (is_vm) {
+		config |= VM_CMD_EN | TS_VFP_EN | TIME_SEL;
+	} else {
+		if (!(msg->flags & MIPI_DSI_MSG_USE_LPM))
+			config |= HSTX;
+	}
 
 	if (msg->tx_len > 2) {
 		cmdq_size = 1 + (msg->tx_len + 3) / 4;
@@ -1599,16 +1638,35 @@ static void mtk_dsi_cmdq(struct mtk_dsi *dsi, const struct mipi_dsi_msg *msg)
 		reg_val = (type << 8) | config;
 	}
 
-	for (i = 0; i < msg->tx_len; i++)
-		mtk_dsi_mask(dsi, (data->reg_adv[DSI_CMDQ] + cmdq_off + i) & (~0x3U),
-			     (0xffUL << (((i + cmdq_off) & 3U) * 8U)),
-			     tx_buf[i] << (((i + cmdq_off) & 3U) * 8U));
+	for (i = 0; i < msg->tx_len; i++) {
+		u32 offset = (cmdq_off + i) & ~3U;
+		u32 shift = ((cmdq_off + i) & 3U) * 8;
+		u32 reg;
 
-	mtk_dsi_mask(dsi, data->reg_adv[DSI_CMDQ], cmdq_mask, reg_val);
-	mtk_dsi_mask(dsi, data->reg_main[DSI_CMDQ_SIZE], CMDQ_SIZE, cmdq_size);
-	if (data->cmdq_long_packet_ctl) {
-		/* Disable setting cmdq_size automatically for long packets */
-		mtk_dsi_mask(dsi, data->reg_main[DSI_CMDQ_SIZE], CMDQ_SIZE_SEL, CMDQ_SIZE_SEL);
+		if (is_vm && offset == 0) {
+			reg = data->reg_adv[DSI_VM_CMD_CON];
+		} else if (is_vm) {
+			offset -= 4;
+			reg = data->reg_adv[DSI_VM_CMDQ_00 + (offset / 16)] + (offset % 16);
+		} else {
+			reg = data->reg_adv[DSI_CMDQ] + offset;
+		}
+
+		mtk_dsi_mask(dsi, reg, 0xffUL << shift, tx_buf[i] << shift);
+	}
+
+	pr_info("DSI CMD: %02x %02x len=%d vm=%d\n", type, tx_buf[0], cmdq_size, is_vm);
+
+	if (is_vm) {
+		mtk_dsi_mask(dsi, data->reg_adv[DSI_VM_CMD_CON], cmdq_mask, reg_val);
+	} else {
+		mtk_dsi_mask(dsi, data->reg_adv[DSI_CMDQ], cmdq_mask, reg_val);
+		mtk_dsi_mask(dsi, data->reg_main[DSI_CMDQ_SIZE], CMDQ_SIZE, cmdq_size);
+		if (data->cmdq_long_packet_ctl) {
+			/* Disable setting cmdq_size automatically for long packets */
+			mtk_dsi_mask(dsi, data->reg_main[DSI_CMDQ_SIZE],
+				     CMDQ_SIZE_SEL, CMDQ_SIZE_SEL);
+		}
 	}
 }
 
@@ -1617,10 +1675,25 @@ static ssize_t mtk_dsi_host_send_cmd(struct mtk_dsi *dsi,
 {
 	mtk_dsi_wait_for_idle(dsi);
 	mtk_dsi_irq_data_clear(dsi, flag);
-	mtk_dsi_cmdq(dsi, msg);
+	mtk_dsi_cmdq(dsi, msg, false);
 	mtk_dsi_start(dsi);
 
 	if (!mtk_dsi_wait_for_irq_done(dsi, flag, 2000))
+		return -ETIME;
+	else
+		return 0;
+}
+
+static ssize_t mtk_dsi_host_send_vm_cmd(struct mtk_dsi *dsi, const struct mipi_dsi_msg *msg)
+{
+	const struct mtk_dsi_driver_data *data = dsi->driver_data;
+
+	mtk_dsi_irq_data_clear(dsi, VM_CMD_DONE_INT_FLAG);
+	mtk_dsi_cmdq(dsi, msg, true);
+	mtk_dsi_mask(dsi, data->reg_main[DSI_START], VM_CMD_START, 0);
+	mtk_dsi_mask(dsi, data->reg_main[DSI_START], VM_CMD_START, VM_CMD_START);
+
+	if (!mtk_dsi_wait_for_irq_done(dsi, VM_CMD_DONE_INT_FLAG, 2000))
 		return -ETIME;
 	else
 		return 0;
@@ -1640,6 +1713,11 @@ static ssize_t mtk_dsi_host_transfer(struct mipi_dsi_host *host,
 
 	dsi_mode = readl(dsi->regs + dsi->driver_data->reg_main[DSI_MODE_CTRL]);
 	if (dsi_mode & MODE) {
+		if (!MTK_DSI_HOST_IS_READ(msg->type) &&
+				msg->tx_len <= MTK_DSI_VM_CMD_MAX_LEN &&
+				!(msg->flags & MIPI_DSI_MSG_USE_LPM))
+			return mtk_dsi_host_send_vm_cmd(dsi, msg);
+
 		mtk_dsi_stop(dsi);
 		ret = mtk_dsi_switch_to_cmd_mode(dsi, VM_DONE_INT_FLAG, 500);
 		if (ret)
