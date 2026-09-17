@@ -21,6 +21,7 @@ properties:
           - mediatek,mt2712-smi-larb
           - mediatek,mt6779-smi-larb
           - mediatek,mt6795-smi-larb
+          - mediatek,mt6858-smi-larb
           - mediatek,mt6893-smi-larb
           - mediatek,mt8167-smi-larb
           - mediatek,mt8173-smi-larb
@@ -119,6 +120,7 @@ allOf:
               - mediatek,mt2701-smi-larb
               - mediatek,mt2712-smi-larb
               - mediatek,mt6779-smi-larb
+              - mediatek,mt6858-smi-larb
               - mediatek,mt8186-smi-larb
               - mediatek,mt8188-smi-larb
               - mediatek,mt8189-smi-larb
