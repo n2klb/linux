@@ -27,7 +27,7 @@
 	};
 
 	chosen {
-		stdout-path = "serial0:921600n8";
+		bootargs = "console=tty0";
 	};
 
 	memory@40000000 {
@@ -129,6 +129,34 @@
 	cpu-supply = <&mt6319_vbuck1>;
 };
 
+&dsi0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	status = "okay";
+
+	panel@0 {
+		/* FIXME: This is for downstream driver, need cleanup for upstream */
+		compatible = "vtdr6126,dphy,vdo";
+		reg = <0>;
+
+		bias-gpios = <&pio 132 GPIO_ACTIVE_HIGH>,
+			     <&pio 134 GPIO_ACTIVE_HIGH>;
+		powerdm-gpios = <&pio 133 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&pio 97 GPIO_ACTIVE_HIGH>;
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi0_out>;
+			};
+		};
+	};
+};
+
+&dsi0_out {
+	remote-endpoint = <&panel_in>;
+};
+
 &gpu {
 	status = "okay";
 };
@@ -217,6 +245,10 @@
 	status = "okay";
 
 	/* 0x45: AW2023 LED controller */
+};
+
+&mipi_tx0 {
+	status = "okay";
 };
 
 &mmc1 {
