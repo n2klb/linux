@@ -81,6 +81,10 @@ static const struct mtk_mmsys_driver_data mt7623_mmsys_driver_data = {
 	.mmsys_dev_num = 1,
 };
 
+static const struct mtk_mmsys_driver_data mt6858_dispsys_driver_data = {
+	.mmsys_dev_num = 1,
+};
+
 static const struct mtk_mmsys_driver_data mt8167_mmsys_driver_data = {
 	.output_paths = mt8167_legacy_paths,
 	.mmsys_dev_num = 1,
@@ -149,6 +153,8 @@ static const struct of_device_id mtk_drm_of_ids[] = {
 	  .data = &mt7623_mmsys_driver_data},
 	{ .compatible = "mediatek,mt2712-mmsys",
 	  .data = &mt2712_mmsys_driver_data},
+	{ .compatible = "mediatek,mt6858-dispsys",
+	  .data = &mt6858_dispsys_driver_data},
 	{ .compatible = "mediatek,mt8167-mmsys",
 	  .data = &mt8167_mmsys_driver_data},
 	{ .compatible = "mediatek,mt8173-mmsys",
@@ -658,6 +664,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
 	  .data = (void *)MTK_DISP_DITHER },
 	{ .compatible = "mediatek,mt8183-disp-dither",
 	  .data = (void *)MTK_DISP_DITHER },
+	{ .compatible = "mediatek,mt6858-disp-dsc",
+	  .data = (void *)MTK_DISP_DSC },
 	{ .compatible = "mediatek,mt8195-disp-dsc",
 	  .data = (void *)MTK_DISP_DSC },
 	{ .compatible = "mediatek,mt8196-disp-exdma",
