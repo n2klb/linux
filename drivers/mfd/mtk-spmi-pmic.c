@@ -275,8 +275,7 @@ static void mtk_spmi_pmic_handle_chained_irq(struct irq_desc *desc)
 	}
 
 	for (i = 0; i < variant->num_groups; i++) {
-		const struct mtk_spmi_pmic_irq_grp *irq_grp = &variant->pmic_irq[i];
-		u8 group_bit = BIT(irq_grp[i].group_num);
+		u8 group_bit = BIT(variant->pmic_irq[i].group_num);
 
 		if (val & group_bit) {
 			ret = mtk_spmi_pmic_handle_group_irq(pmic, i);
@@ -356,6 +355,14 @@ static const struct mtk_spmi_pmic_irq_grp mt6363_irq_groups[] = {
 	MTK_SPMI_PMIC_IRQ_GROUP(MT6363, BM,	6, 88, 107)
 };
 
+static const struct mtk_spmi_pmic_irq_grp mt6369_irq_groups[] = {
+	MTK_SPMI_PMIC_IRQ_GROUP(MT6369, BUCK,	0,  0,  6),
+	MTK_SPMI_PMIC_IRQ_GROUP(MT6369, LDO,	1,  8, 26),
+	MTK_SPMI_PMIC_IRQ_GROUP(MT6369, MISC,	3, 32, 47),
+	MTK_SPMI_PMIC_IRQ_GROUP(MT6369, HK,	4, 48, 55),
+	MTK_SPMI_PMIC_IRQ_GROUP(MT6369, AUD,	7, 56, 59)
+};
+
 static const struct mtk_spmi_pmic_irq_grp mt6373_irq_groups[] = {
 	MTK_SPMI_PMIC_IRQ_GROUP(MT6373, BUCK,	0,  0,  9),
 	MTK_SPMI_PMIC_IRQ_GROUP(MT6373, LDO,	1, 16, 39),
@@ -367,6 +374,14 @@ static const struct mtk_spmi_pmic_variant mt6363_variant = {
 	.num_groups = ARRAY_SIZE(mt6363_irq_groups),
 	.con_reg_len = 3,
 	.irq_grp_reg = MT6363_REG_TOP_INT_STATUS1,
+	.chip_id_reg = MTK_SPMI_PMIC_REG_CHIP_ID,
+};
+
+static const struct mtk_spmi_pmic_variant mt6369_variant = {
+	.pmic_irq = mt6369_irq_groups,
+	.num_groups = ARRAY_SIZE(mt6369_irq_groups),
+	.con_reg_len = 3,
+	.irq_grp_reg = MT6369_REG_TOP_INT_STATUS1,
 	.chip_id_reg = MTK_SPMI_PMIC_REG_CHIP_ID,
 };
 
@@ -408,6 +423,7 @@ static int mtk_spmi_pmic_probe(struct spmi_device *sdev)
 
 static const struct of_device_id mtk_pmic_spmi_id_table[] = {
 	{ .compatible = "mediatek,mt6363", .data = &mt6363_variant },
+	{ .compatible = "mediatek,mt6369", .data = &mt6369_variant },
 	{ .compatible = "mediatek,mt6373", .data = &mt6373_variant },
 	{ /* sentinel */ }
 };
