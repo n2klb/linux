@@ -124,16 +124,22 @@
 #  define DSC_P12_RC_RANGE_MAX_QP	GENMASK(9, 5)
 #  define DSC_P12_RC_RANGE_BPG_OFFSET	GENMASK(15, 10)
 
-#define DISP_REG_DSC_SHADOW		0x200
+#define DISP_REG_DSC_SHADOW_MT8195	0x200
+#define DISP_REG_DSC_SHADOW_MT6858	0x228
 #  define DSC_FORCE_COMMIT		BIT(0)
 #  define DSC_BYPASS_SHADOW		BIT(1)
 #  define DSC_READ_WORKING		BIT(2)
 #  define DSC_SHADOW_DSC_VERSION_MINOR	GENMASK(8, 5)
 
+struct mtk_disp_dsc_data {
+	u32 shadow_reg;
+};
+
 struct mtk_dsc {
-	struct clk		*clk;
-	void __iomem		*reg;
-	bool			dsc_config_done;
+	struct clk			*clk;
+	void __iomem			*reg;
+	const struct mtk_disp_dsc_data	*data;
+	bool				dsc_config_done;
 };
 
 int mtk_dsc_clk_enable(struct mtk_ddp_comp *comp)
@@ -337,7 +343,7 @@ void mtk_dsc_setup(struct device *dev, struct drm_dsc_config *dsc_cfg)
 	writel(dsc_cfg_rval, disp_dsc->reg + DISP_REG_DSC_CFG);
 	writel(dsc_dbg_con, disp_dsc->reg + DISP_REG_DSC_DBG_CON);
 	writel(FIELD_PREP_CONST(DSC_OBUF_SIZE, 1040), disp_dsc->reg + DISP_REG_DSC_OUTBUF);
-	writel(dsc_shadow, disp_dsc->reg + DISP_REG_DSC_SHADOW);
+	writel(dsc_shadow, disp_dsc->reg + disp_dsc->data->shadow_reg);
 
 	/* Set PPS registers configuration */
 	mtk_dsc_pps_setup(disp_dsc, dsc_cfg);
@@ -415,6 +421,7 @@ static int mtk_dsc_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(priv->reg),
 				     "failed to do ioremap\n");
 
+	priv->data = of_device_get_match_data(dev);
 	platform_set_drvdata(pdev, priv);
 
 	ret = devm_pm_runtime_enable(dev);
@@ -433,8 +440,17 @@ static void mtk_dsc_remove(struct platform_device *pdev)
 	component_del(&pdev->dev, &mtk_dsc_component_ops);
 }
 
+static const struct mtk_disp_dsc_data mt6858_dsc_driver_data = {
+	.shadow_reg = DISP_REG_DSC_SHADOW_MT6858,
+};
+
+static const struct mtk_disp_dsc_data mt8195_dsc_driver_data = {
+	.shadow_reg = DISP_REG_DSC_SHADOW_MT8195,
+};
+
 static const struct of_device_id mtk_dsc_driver_dt_match[] = {
-	{ .compatible = "mediatek,mt8195-disp-dsc" },
+	{ .compatible = "mediatek,mt6858-disp-dsc", .data = &mt6858_dsc_driver_data },
+	{ .compatible = "mediatek,mt8195-disp-dsc", .data = &mt8195_dsc_driver_data },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, mtk_dsc_driver_dt_match);
