@@ -21,6 +21,7 @@ properties:
   compatible:
     oneOf:
       - enum:
+          - mediatek,mt6858-disp-dsc
           - mediatek,mt8195-disp-dsc
       - items:
           - enum:
