@@ -19,6 +19,7 @@ properties:
     oneOf:
       - enum:
           - mediatek,mt6779-gce
+          - mediatek,mt6858-gce
           - mediatek,mt8173-gce
           - mediatek,mt8183-gce
           - mediatek,mt8186-gce
@@ -43,12 +44,16 @@ properties:
     maxItems: 1
 
   clocks:
+    minItems: 1
     items:
       - description: Global Command Engine clock
+      - description: Global Command Engine 26MHz timer clock
 
   clock-names:
+    minItems: 1
     items:
       - const: gce
+      - const: timer
 
   iommus:
     maxItems: 1

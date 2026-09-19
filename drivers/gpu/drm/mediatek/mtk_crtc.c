@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2015 MediaTek Inc.
+ * Copyright (c) 2026 Collabora Ltd.
+ *                    AngeloGioacchino Del Regno <angelogioacchino.delregno@collabora.com>
  */
 
 #include <linux/clk.h>
 #include <linux/dma-mapping.h>
 #include <linux/mailbox_controller.h>
+#include <linux/minmax.h>
 #include <linux/of.h>
 #include <linux/pm_runtime.h>
 #include <linux/soc/mediatek/mtk-cmdq.h>
@@ -27,27 +30,59 @@
 #include "mtk_plane.h"
 
 /*
+ * struct mtk_crtc_hw_layer - MediaTek specific layer structure
+ * @plane:           DRM Plane
+ * @layer_stages:    HW Components layer stage indices to form one full layer/plane
+ * @layer_stages_nr: Number of layer stages in array
+ */
+struct mtk_crtc_hw_layer {
+	struct drm_plane plane;
+	u8 *layer_stages;
+	u8 layer_stages_nr;
+};
+
+/**
  * struct mtk_crtc - MediaTek specific crtc structure.
- * @base: crtc object.
- * @enabled: records whether crtc_enable succeeded
- * @planes: array of 4 drm_plane structures, one for each overlay plane
- * @pending_planes: whether any plane has pending changes to be applied
- * @mmsys_dev: pointer to the mmsys device for configuration registers
- * @mutex: handle to one of the ten disp_mutex streams
- * @ddp_comp_nr: number of components in ddp_comp
- * @ddp_comp: array of pointers the mtk_ddp_comp structures used by this crtc
- *
- * TODO: Needs update: this header is missing a bunch of member descriptions.
+ * @base:            CRTC object
+ * @enabled:         Records whether crtc_enable succeeded
+ * @controller_idmap:Array that maps a controller's MMSYS ID to mtk_crtc per-controller
+ *                   arrays indices; this array is counted by num_controllers.
+ * @num_controllers: Records number of display controllers used by this pipeline
+ * @pending_needs_vblank: Records whether pending config operation needs a VBlank to finish
+ * @event:           VBlank event to signal upon completion of state update
+ * @hwlayers:        Array of mtk_crtc_hw_layer structures, one for each overlay plane
+ * @hwlayer_nr:      Number of hwlayers
+ * @pending_planes:  Planes pending atomic configuration operation
+ * @pending_async_planes: Planes pending asynchronous configuration operation
+ * @cmdq_client:     CMDQ Mailbox Client structure
+ * @cmdq_handle:     Handle to CMDQ Packet structure, used to send a packet
+ * @cmdq_event:      Bitmask of GCE Events that CMDQ listens to (to send packets on event)
+ * @cmdq_vblank_cnt: Number of VBlanks after which CMDQ packet sending operation times out
+ * @cb_blocking_queue: Wait queue for sending blocking command packet through CMDQ Mailbox
+ * @mmsys_dev:       Pointer to the MMSYS device for configuration registers
+ * @dma_dev:         Pointer to the DMA device (usually linked to an IOMMU)
+ * @mutex:           Pointer to the MediaTek MuteX devices for HW triggers mute/unmuting
+ * @vblank_comp_idx: Index of HW component where to enable sending VBlanks
+ * @config_comp_idx: Index of main HW component to use for plane configuration
+ * @ddp_comp_nr:     Number of HW components in ddp_comp structure
+ * @num_conn_routes: Number of alternative connection routes for a pipeline
+ * @conn_routes:     Array of HW components usable as alternative connection route
+ * @hw_lock:         Display HW access mutex lock
+ * @config_updating: Tracks whether an asynchronous config update operation is in progress
+ * @config_lock:     Spinlock to protect config_updating variable
+ * @ddp_comp:        Array of HW components used in one Display Controller pipeline
  */
 struct mtk_crtc {
 	struct drm_crtc			base;
 	bool				enabled;
+	u8				*controller_idmap;
+	u8				num_controllers;
 
 	bool				pending_needs_vblank;
 	struct drm_pending_vblank_event	*event;
 
-	struct drm_plane		*planes;
-	unsigned int			layer_nr;
+	struct mtk_crtc_hw_layer	*hwlayers;
+	unsigned int			hwlayer_nr;
 	bool				pending_planes;
 	bool				pending_async_planes;
 
@@ -61,15 +96,15 @@ struct mtk_crtc {
 
 	struct device			*mmsys_dev;
 	struct device			*dma_dev;
-	struct mtk_mutex		*mutex;
+	struct mtk_mutex		**mutex;
+	s8				vblank_comp_idx;
+	s8				config_comp_idx;
 	unsigned int			ddp_comp_nr;
 	unsigned int			num_conn_routes;
 	const struct mtk_drm_route	*conn_routes;
 
-	/* lock for display hardware access */
 	struct mutex			hw_lock;
 	bool				config_updating;
-	/* lock for config_updating to cmd buffer */
 	spinlock_t			config_lock;
 
 	struct mtk_ddp_comp		*ddp_comp[];
@@ -132,7 +167,8 @@ static void mtk_crtc_destroy(struct drm_crtc *crtc)
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
 	int i;
 
-	mtk_mutex_put(mtk_crtc->mutex);
+	for (i = 0; i < mtk_crtc->num_controllers; i++)
+		mtk_mutex_put(mtk_crtc->mutex[i]);
 #if IS_REACHABLE(CONFIG_MTK_CMDQ)
 	if (mtk_crtc->cmdq_client.chan) {
 		cmdq_pkt_destroy(&mtk_crtc->cmdq_client, &mtk_crtc->cmdq_handle);
@@ -251,29 +287,6 @@ static void mtk_crtc_ddp_clk_disable(struct mtk_crtc *mtk_crtc)
 		mtk_ddp_comp_clk_disable(mtk_crtc->ddp_comp[i]);
 }
 
-static
-struct mtk_ddp_comp *mtk_ddp_comp_for_plane(struct drm_crtc *crtc,
-					    struct drm_plane *plane,
-					    unsigned int *local_layer)
-{
-	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
-	struct mtk_ddp_comp *comp;
-	int i, count = 0;
-	unsigned int local_index = plane - mtk_crtc->planes;
-
-	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
-		comp = mtk_crtc->ddp_comp[i];
-		if (local_index < (count + mtk_ddp_comp_layer_nr(comp))) {
-			*local_layer = local_index - count;
-			return comp;
-		}
-		count += mtk_ddp_comp_layer_nr(comp);
-	}
-
-	WARN(1, "Failed to find component for plane %d\n", plane->index);
-	return NULL;
-}
-
 #if IS_REACHABLE(CONFIG_MTK_CMDQ)
 static void ddp_cmdq_cb(struct mbox_client *cl, void *mssg)
 {
@@ -283,6 +296,7 @@ static void ddp_cmdq_cb(struct mbox_client *cl, void *mssg)
 	struct mtk_crtc_state *state;
 	unsigned int i;
 	unsigned long flags;
+	bool cfg_updating;
 
 	/* release GCE HW usage and start autosuspend */
 	pm_runtime_mark_last_busy(cmdq_cl->chan->mbox->dev);
@@ -294,14 +308,17 @@ static void ddp_cmdq_cb(struct mbox_client *cl, void *mssg)
 	state = to_mtk_crtc_state(mtk_crtc->base.state);
 
 	spin_lock_irqsave(&mtk_crtc->config_lock, flags);
-	if (mtk_crtc->config_updating)
+	cfg_updating = mtk_crtc->config_updating;
+	spin_unlock_irqrestore(&mtk_crtc->config_lock, flags);
+
+	if (cfg_updating)
 		goto ddp_cmdq_cb_out;
 
 	state->pending_config = false;
 
 	if (mtk_crtc->pending_planes) {
-		for (i = 0; i < mtk_crtc->layer_nr; i++) {
-			struct drm_plane *plane = &mtk_crtc->planes[i];
+		for (i = 0; i < mtk_crtc->hwlayer_nr; i++) {
+			struct drm_plane *plane = &mtk_crtc->hwlayers[i].plane;
 			struct mtk_plane_state *plane_state;
 
 			plane_state = to_mtk_plane_state(plane->state);
@@ -312,8 +329,8 @@ static void ddp_cmdq_cb(struct mbox_client *cl, void *mssg)
 	}
 
 	if (mtk_crtc->pending_async_planes) {
-		for (i = 0; i < mtk_crtc->layer_nr; i++) {
-			struct drm_plane *plane = &mtk_crtc->planes[i];
+		for (i = 0; i < mtk_crtc->hwlayer_nr; i++) {
+			struct drm_plane *plane = &mtk_crtc->hwlayers[i].plane;
 			struct mtk_plane_state *plane_state;
 
 			plane_state = to_mtk_plane_state(plane->state);
@@ -324,18 +341,88 @@ static void ddp_cmdq_cb(struct mbox_client *cl, void *mssg)
 	}
 
 ddp_cmdq_cb_out:
-
 	if (mtk_crtc->pending_needs_vblank) {
 		mtk_crtc_finish_page_flip(mtk_crtc);
 		mtk_crtc->pending_needs_vblank = false;
 	}
 
-	spin_unlock_irqrestore(&mtk_crtc->config_lock, flags);
-
 	mtk_crtc->cmdq_vblank_cnt = 0;
 	wake_up(&mtk_crtc->cb_blocking_queue);
 }
 #endif
+
+static void mtk_crtc_config_layer(struct mtk_crtc *mtk_crtc,
+				  struct mtk_plane_state *plane_state,
+				  int layer_num, struct cmdq_pkt *cmdq_pkt)
+{
+	u8 *layer_stages = mtk_crtc->hwlayers[layer_num].layer_stages;
+	u8 i = 0;
+
+	do {
+		mtk_ddp_comp_layer_config(mtk_crtc->ddp_comp[layer_stages[i]],
+					  layer_num, plane_state, cmdq_pkt);
+	} while (++i < mtk_crtc->hwlayers[layer_num].layer_stages_nr);
+
+	return;
+}
+
+static struct mtk_drm_private
+*mtk_crtc_get_comp_priv(struct mtk_crtc *mtk_crtc, struct mtk_ddp_comp *comp)
+{
+	struct drm_crtc *crtc = &mtk_crtc->base;
+	struct mtk_drm_private *main_priv = crtc->dev->dev_private;
+
+	for (int i = 0; i < main_priv->data->mmsys_dev_num; i++) {
+		struct mtk_drm_private *priv = main_priv->all_drm_private[i];
+		bool comp_found;
+
+		if (!priv)
+			continue;
+
+		comp_found = mtk_ddp_find_comp_dev_in_table(&priv->hlist,
+							    comp->type,
+							    comp->dev);
+		if (comp_found)
+			return priv;
+	}
+
+	drm_warn(mtk_crtc->base.dev,
+		 "Could not find priv for component %u-%u - trying with main...\n",
+		 comp->type, comp->inst_id);
+
+	return main_priv;
+}
+
+static struct mtk_drm_private
+*mtk_crtc_get_controller_priv(struct mtk_crtc *mtk_crtc, unsigned int controller_id)
+{
+	struct drm_crtc *crtc = &mtk_crtc->base;
+	struct mtk_drm_private *main_priv = crtc->dev->dev_private;
+
+	for (int i = 0; i < main_priv->data->mmsys_dev_num; i++) {
+		struct mtk_drm_private *priv = main_priv->all_drm_private[i];
+
+		if (priv->data->mmsys_id == controller_id)
+			return priv;
+	}
+
+	/* This should never happen */
+	drm_warn(mtk_crtc->base.dev,
+		 "Could not find priv for Controller %u - trying with main..\n",
+		 controller_id);
+
+	return main_priv;
+}
+
+static unsigned int mtk_crtc_get_controller_map_idx(struct mtk_crtc *mtk_crtc,
+						    unsigned int controller_id)
+{
+	for (int i = 0; i < mtk_crtc->num_controllers; i++)
+		if (mtk_crtc->controller_idmap[i] == controller_id)
+			return i;
+
+	return 0;
+}
 
 static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
 {
@@ -347,6 +434,9 @@ static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
 	struct drm_dsc_config *dsc_cfg;
 	struct drm_device *dev = mtk_crtc->base.dev;
 	unsigned int width, height, vrefresh, bpc = MTK_MAX_BPC;
+	struct mtk_drm_private *priv;
+	struct mtk_mutex *mtk_mutex;
+	u8 mutex_idx;
 	int ret;
 	int i;
 
@@ -378,10 +468,12 @@ static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
 		return ret;
 	}
 
-	ret = mtk_mutex_prepare(mtk_crtc->mutex);
-	if (ret < 0) {
-		drm_err(dev, "Failed to enable mutex clock: %d\n", ret);
-		goto err_pm_runtime_put;
+	for (i = 0; i < mtk_crtc->num_controllers; i++) {
+		ret = mtk_mutex_prepare(mtk_crtc->mutex[i]);
+		if (ret < 0) {
+			drm_err(dev, "Failed to enable mutex clock: %d\n", ret);
+			goto err_pm_runtime_put;
+		}
 	}
 
 	ret = mtk_crtc_ddp_clk_enable(mtk_crtc);
@@ -391,32 +483,49 @@ static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
 	}
 
 	for (i = 0; i < mtk_crtc->ddp_comp_nr - 1; i++) {
-		if (!mtk_ddp_comp_connect(mtk_crtc->ddp_comp[i], mtk_crtc->mmsys_dev,
-					  mtk_crtc->ddp_comp[i + 1]->id))
-			mtk_mmsys_ddp_connect(mtk_crtc->mmsys_dev,
-					      mtk_crtc->ddp_comp[i]->id,
-					      mtk_crtc->ddp_comp[i + 1]->id);
-		if (!mtk_ddp_comp_add(mtk_crtc->ddp_comp[i], mtk_crtc->mutex))
-			mtk_mutex_add_comp(mtk_crtc->mutex,
-					   mtk_crtc->ddp_comp[i]->id);
+		struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[i];
+		struct mtk_ddp_comp *next = mtk_crtc->ddp_comp[i + 1];
+		struct device *mmsys_dev;
+
+		priv = mtk_crtc_get_comp_priv(mtk_crtc, comp);
+		mutex_idx = mtk_crtc_get_controller_map_idx(mtk_crtc,
+							    priv->data->mmsys_id);
+		mtk_mutex = mtk_crtc->mutex[mutex_idx];
+		mmsys_dev = priv->mmsys_dev;
+
+		if (!mtk_ddp_comp_connect(comp, mmsys_dev, next))
+			mtk_mmsys_hw_connect(mmsys_dev,
+					     comp->type, comp->inst_id,
+					     next->type, next->inst_id);
+
+		if (!mtk_ddp_comp_add(comp, mtk_mutex))
+			mtk_mutex_add_trigger(mtk_mutex,
+					      comp->type, comp->inst_id,
+					      comp->mtx_trig_id);
 	}
-	if (!mtk_ddp_comp_add(mtk_crtc->ddp_comp[i], mtk_crtc->mutex))
-		mtk_mutex_add_comp(mtk_crtc->mutex, mtk_crtc->ddp_comp[i]->id);
-	mtk_mutex_enable(mtk_crtc->mutex);
+
+	priv = mtk_crtc_get_comp_priv(mtk_crtc, mtk_crtc->ddp_comp[i]);
+	mutex_idx = mtk_crtc_get_controller_map_idx(mtk_crtc, priv->data->mmsys_id);
+	mtk_mutex = mtk_crtc->mutex[mutex_idx];
+
+	if (!mtk_ddp_comp_add(mtk_crtc->ddp_comp[i], mtk_mutex))
+		mtk_mutex_add_trigger(mtk_mutex,
+				      mtk_crtc->ddp_comp[i]->type,
+				      mtk_crtc->ddp_comp[i]->inst_id,
+				      mtk_crtc->ddp_comp[i]->mtx_trig_id);
+
+	for (i = 0; i < mtk_crtc->num_controllers; i++)
+		mtk_mutex_enable(mtk_crtc->mutex[i]);
 
 	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
 		struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[i];
 
 		/* For now, only single DSI is supported */
-		if (comp->id >= DDP_COMPONENT_DSI0 &&
-		    comp->id <= DDP_COMPONENT_DSI3)
-			if (!comp_dsi)
-				comp_dsi = mtk_crtc->ddp_comp[i];
+		if (comp->type == MTK_DISP_DSI && !comp_dsi)
+			comp_dsi = mtk_crtc->ddp_comp[i];
 
-		if (comp->id == DDP_COMPONENT_DSC0 ||
-		    comp->id == DDP_COMPONENT_DSC1)
-			if (!comp_dsc)
-				comp_dsc = comp;
+		if (comp->type == MTK_DISP_DSC && !comp_dsc)
+			comp_dsc = comp;
 
 		if (i == 1)
 			mtk_ddp_comp_bgclr_in_on(comp);
@@ -433,26 +542,23 @@ static int mtk_crtc_ddp_hw_init(struct mtk_crtc *mtk_crtc)
 	}
 
 	/* Initially configure all planes */
-	for (i = 0; i < mtk_crtc->layer_nr; i++) {
-		struct drm_plane *plane = &mtk_crtc->planes[i];
+	for (i = 0; i < mtk_crtc->hwlayer_nr; i++) {
+		struct drm_plane *plane = &mtk_crtc->hwlayers[i].plane;
 		struct mtk_plane_state *plane_state;
-		struct mtk_ddp_comp *comp;
-		unsigned int local_layer;
 
 		plane_state = to_mtk_plane_state(plane->state);
 
 		/* should not enable layer before crtc enabled */
 		plane_state->pending.enable = false;
-		comp = mtk_ddp_comp_for_plane(crtc, plane, &local_layer);
-		if (comp)
-			mtk_ddp_comp_layer_config(comp, local_layer,
-						  plane_state, NULL);
+
+		mtk_crtc_config_layer(mtk_crtc, plane_state, i, NULL);
 	}
 
 	return 0;
 
 err_mutex_unprepare:
-	mtk_mutex_unprepare(mtk_crtc->mutex);
+	for (i = 0; i < mtk_crtc->num_controllers; i++)
+		mtk_mutex_unprepare(mtk_crtc->mutex[i]);
 err_pm_runtime_put:
 	pm_runtime_put(crtc->dev->dev);
 	return ret;
@@ -462,8 +568,12 @@ static void mtk_crtc_ddp_hw_fini(struct mtk_crtc *mtk_crtc)
 {
 	struct drm_device *drm = mtk_crtc->base.dev;
 	struct drm_crtc *crtc = &mtk_crtc->base;
+	struct mtk_drm_private *priv;
+	struct mtk_mutex *mtk_mutex;
 	unsigned long flags;
+	u8 mutex_idx;
 	int i;
+
 
 	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
 		mtk_ddp_comp_stop(mtk_crtc->ddp_comp[i]);
@@ -471,25 +581,59 @@ static void mtk_crtc_ddp_hw_fini(struct mtk_crtc *mtk_crtc)
 			mtk_ddp_comp_bgclr_in_off(mtk_crtc->ddp_comp[i]);
 	}
 
-	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++)
-		if (!mtk_ddp_comp_remove(mtk_crtc->ddp_comp[i], mtk_crtc->mutex))
-			mtk_mutex_remove_comp(mtk_crtc->mutex,
-					      mtk_crtc->ddp_comp[i]->id);
-	mtk_mutex_disable(mtk_crtc->mutex);
-	for (i = 0; i < mtk_crtc->ddp_comp_nr - 1; i++) {
-		if (!mtk_ddp_comp_disconnect(mtk_crtc->ddp_comp[i], mtk_crtc->mmsys_dev,
-					     mtk_crtc->ddp_comp[i + 1]->id))
-			mtk_mmsys_ddp_disconnect(mtk_crtc->mmsys_dev,
-						 mtk_crtc->ddp_comp[i]->id,
-						 mtk_crtc->ddp_comp[i + 1]->id);
-		if (!mtk_ddp_comp_remove(mtk_crtc->ddp_comp[i], mtk_crtc->mutex))
-			mtk_mutex_remove_comp(mtk_crtc->mutex,
-					      mtk_crtc->ddp_comp[i]->id);
+	for (i = 0; i < mtk_crtc->num_controllers; i++)
+		mtk_mutex_disable(mtk_crtc->mutex[i]);
+
+	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
+		struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[i];
+
+		priv = mtk_crtc_get_comp_priv(mtk_crtc, comp);
+		mutex_idx = mtk_crtc_get_controller_map_idx(mtk_crtc,
+							    priv->data->mmsys_id);
+		mtk_mutex = mtk_crtc->mutex[mutex_idx];
+
+		if (!mtk_ddp_comp_remove(mtk_crtc->ddp_comp[i], mtk_mutex))
+			mtk_mutex_remove_trigger(mtk_mutex,
+						 mtk_crtc->ddp_comp[i]->type,
+						 mtk_crtc->ddp_comp[i]->inst_id,
+						 mtk_crtc->ddp_comp[i]->mtx_trig_id);
 	}
-	if (!mtk_ddp_comp_remove(mtk_crtc->ddp_comp[i], mtk_crtc->mutex))
-		mtk_mutex_remove_comp(mtk_crtc->mutex, mtk_crtc->ddp_comp[i]->id);
+
+	for (i = 0; i < mtk_crtc->ddp_comp_nr - 1; i++) {
+		struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[i];
+		struct mtk_ddp_comp *next = mtk_crtc->ddp_comp[i + 1];
+		struct device *mmsys_dev;
+
+		priv = mtk_crtc_get_comp_priv(mtk_crtc, comp);
+		mutex_idx = mtk_crtc_get_controller_map_idx(mtk_crtc,
+							    priv->data->mmsys_id);
+		mtk_mutex = mtk_crtc->mutex[mutex_idx];
+		mmsys_dev = priv->mmsys_dev;
+
+		if (!mtk_ddp_comp_disconnect(comp, mmsys_dev, next))
+			mtk_mmsys_hw_disconnect(mmsys_dev,
+						comp->type, comp->inst_id,
+						next->type, next->inst_id);
+
+		if (!mtk_ddp_comp_remove(mtk_crtc->ddp_comp[i], mtk_mutex))
+			mtk_mutex_remove_trigger(mtk_mutex,
+						 mtk_crtc->ddp_comp[i]->type,
+						 mtk_crtc->ddp_comp[i]->inst_id,
+						 mtk_crtc->ddp_comp[i]->mtx_trig_id);
+	}
+	priv = mtk_crtc_get_comp_priv(mtk_crtc, mtk_crtc->ddp_comp[i]);
+	mutex_idx = mtk_crtc_get_controller_map_idx(mtk_crtc, priv->data->mmsys_id);
+	mtk_mutex = mtk_crtc->mutex[mutex_idx];
+	if (!mtk_ddp_comp_remove(mtk_crtc->ddp_comp[i], mtk_mutex))
+		mtk_mutex_remove_trigger(mtk_mutex,
+					 mtk_crtc->ddp_comp[i]->type,
+					 mtk_crtc->ddp_comp[i]->inst_id,
+					 mtk_crtc->ddp_comp[i]->mtx_trig_id);
+
 	mtk_crtc_ddp_clk_disable(mtk_crtc);
-	mtk_mutex_unprepare(mtk_crtc->mutex);
+
+	for (i = 0; i < mtk_crtc->num_controllers; i++)
+		mtk_mutex_unprepare(mtk_crtc->mutex[i]);
 
 	pm_runtime_put(drm->dev);
 
@@ -506,9 +650,8 @@ static void mtk_crtc_ddp_config(struct drm_crtc *crtc,
 {
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
 	struct mtk_crtc_state *state = to_mtk_crtc_state(mtk_crtc->base.state);
-	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[0];
+	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[mtk_crtc->config_comp_idx];
 	unsigned int i;
-	unsigned int local_layer;
 
 	/*
 	 * TODO: instead of updating the registers here, we should prepare
@@ -526,8 +669,8 @@ static void mtk_crtc_ddp_config(struct drm_crtc *crtc,
 	}
 
 	if (mtk_crtc->pending_planes) {
-		for (i = 0; i < mtk_crtc->layer_nr; i++) {
-			struct drm_plane *plane = &mtk_crtc->planes[i];
+		for (i = 0; i < mtk_crtc->hwlayer_nr; i++) {
+			struct drm_plane *plane = &mtk_crtc->hwlayers[i].plane;
 			struct mtk_plane_state *plane_state;
 
 			plane_state = to_mtk_plane_state(plane->state);
@@ -535,12 +678,8 @@ static void mtk_crtc_ddp_config(struct drm_crtc *crtc,
 			if (!plane_state->pending.config)
 				continue;
 
-			comp = mtk_ddp_comp_for_plane(crtc, plane, &local_layer);
+			mtk_crtc_config_layer(mtk_crtc, plane_state, i, cmdq_handle);
 
-			if (comp)
-				mtk_ddp_comp_layer_config(comp, local_layer,
-							  plane_state,
-							  cmdq_handle);
 			if (!cmdq_handle)
 				plane_state->pending.config = false;
 		}
@@ -550,8 +689,8 @@ static void mtk_crtc_ddp_config(struct drm_crtc *crtc,
 	}
 
 	if (mtk_crtc->pending_async_planes) {
-		for (i = 0; i < mtk_crtc->layer_nr; i++) {
-			struct drm_plane *plane = &mtk_crtc->planes[i];
+		for (i = 0; i < mtk_crtc->hwlayer_nr; i++) {
+			struct drm_plane *plane = &mtk_crtc->hwlayers[i].plane;
 			struct mtk_plane_state *plane_state;
 
 			plane_state = to_mtk_plane_state(plane->state);
@@ -559,12 +698,8 @@ static void mtk_crtc_ddp_config(struct drm_crtc *crtc,
 			if (!plane_state->pending.async_config)
 				continue;
 
-			comp = mtk_ddp_comp_for_plane(crtc, plane, &local_layer);
+			mtk_crtc_config_layer(mtk_crtc, plane_state, i, cmdq_handle);
 
-			if (comp)
-				mtk_ddp_comp_layer_config(comp, local_layer,
-							  plane_state,
-							  cmdq_handle);
 			if (!cmdq_handle)
 				plane_state->pending.async_config = false;
 		}
@@ -594,8 +729,8 @@ static void mtk_crtc_update_config(struct mtk_crtc *mtk_crtc, bool needs_vblank)
 	if (needs_vblank)
 		mtk_crtc->pending_needs_vblank = true;
 
-	for (i = 0; i < mtk_crtc->layer_nr; i++) {
-		struct drm_plane *plane = &mtk_crtc->planes[i];
+	for (i = 0; i < mtk_crtc->hwlayer_nr; i++) {
+		struct drm_plane *plane = &mtk_crtc->hwlayers[i].plane;
 		struct mtk_plane_state *plane_state;
 
 		plane_state = to_mtk_plane_state(plane->state);
@@ -615,9 +750,13 @@ static void mtk_crtc_update_config(struct mtk_crtc *mtk_crtc, bool needs_vblank)
 		mtk_crtc->pending_async_planes = true;
 
 	if (priv->data->shadow_register) {
-		mtk_mutex_acquire(mtk_crtc->mutex);
+		for (i = 0; i < mtk_crtc->num_controllers; i++)
+			mtk_mutex_acquire(mtk_crtc->mutex[i]);
+
 		mtk_crtc_ddp_config(crtc, NULL);
-		mtk_mutex_release(mtk_crtc->mutex);
+
+		for (i = 0; i < mtk_crtc->num_controllers; i++)
+			mtk_mutex_release(mtk_crtc->mutex[i]);
 	}
 #if IS_REACHABLE(CONFIG_MTK_CMDQ)
 	if (mtk_crtc->cmdq_client.chan) {
@@ -685,7 +824,7 @@ static void mtk_crtc_ddp_irq(void *data)
 static int mtk_crtc_enable_vblank(struct drm_crtc *crtc)
 {
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
-	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[0];
+	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[mtk_crtc->vblank_comp_idx];
 
 	mtk_ddp_comp_enable_vblank(comp);
 
@@ -695,7 +834,7 @@ static int mtk_crtc_enable_vblank(struct drm_crtc *crtc)
 static void mtk_crtc_disable_vblank(struct drm_crtc *crtc)
 {
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
-	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[0];
+	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[mtk_crtc->vblank_comp_idx];
 
 	mtk_ddp_comp_disable_vblank(comp);
 }
@@ -724,14 +863,19 @@ static void mtk_crtc_update_output(struct drm_crtc *crtc,
 		crtc_state->connectors_changed, encoder_mask, crtc_index);
 
 	for (i = 0; i < mtk_crtc->num_conn_routes; i++) {
-		unsigned int comp_id = mtk_crtc->conn_routes[i].route_ddp;
-		struct mtk_ddp_comp *comp = &priv->ddp_comp[comp_id];
+		const struct mtk_drm_route *conn_route = &mtk_crtc->conn_routes[i];
+		struct mtk_ddp_comp *comp;
+
+		comp = mtk_ddp_comp_find_by_id(&priv->hlist, conn_route->route_ddp_type,
+					       conn_route->route_ddp_inst_id);
+		if (!comp)
+			continue;
 
 		if (comp->encoder_index >= 0 &&
 		    (encoder_mask & BIT(comp->encoder_index))) {
 			mtk_crtc->ddp_comp[mtk_crtc->ddp_comp_nr - 1] = comp;
-			dev_dbg(dev, "Add comp_id: %d at path index %d\n",
-				comp->id, mtk_crtc->ddp_comp_nr - 1);
+			dev_dbg(dev, "Add comp %u-%u at path index %d\n",
+				comp->type, comp->inst_id, mtk_crtc->ddp_comp_nr - 1);
 			break;
 		}
 	}
@@ -740,12 +884,19 @@ static void mtk_crtc_update_output(struct drm_crtc *crtc,
 int mtk_crtc_plane_check(struct drm_crtc *crtc, struct drm_plane *plane,
 			 struct mtk_plane_state *state)
 {
-	unsigned int local_layer;
-	struct mtk_ddp_comp *comp;
+	struct mtk_crtc_hw_layer *hwlayer = container_of(plane, struct mtk_crtc_hw_layer, plane);
+	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
+	u8 *layer_stages = hwlayer->layer_stages;
+	int i, ret;
 
-	comp = mtk_ddp_comp_for_plane(crtc, plane, &local_layer);
-	if (comp)
-		return mtk_ddp_comp_layer_check(comp, local_layer, state);
+	for (i = 0; i < hwlayer->layer_stages_nr; i++) {
+		struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[layer_stages[i]];
+
+		ret = mtk_ddp_comp_layer_check(comp, 0, state);
+		if (ret)
+			return ret;
+	}
+
 	return 0;
 }
 
@@ -764,8 +915,8 @@ void mtk_crtc_plane_disable(struct drm_crtc *crtc, struct drm_plane *plane)
 		return;
 
 	/* set pending plane state to disabled */
-	for (i = 0; i < mtk_crtc->layer_nr; i++) {
-		struct drm_plane *mtk_plane = &mtk_crtc->planes[i];
+	for (i = 0; i < mtk_crtc->hwlayer_nr; i++) {
+		struct drm_plane *mtk_plane = &mtk_crtc->hwlayers[i].plane;
 		struct mtk_plane_state *mtk_plane_state = to_mtk_plane_state(mtk_plane->state);
 
 		if (mtk_plane->index == plane->index) {
@@ -797,7 +948,7 @@ static void mtk_crtc_atomic_enable(struct drm_crtc *crtc,
 				   struct drm_atomic_commit *state)
 {
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
-	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[0];
+	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[mtk_crtc->config_comp_idx];
 	struct drm_device *dev = mtk_crtc->base.dev;
 	int ret;
 
@@ -825,7 +976,7 @@ static void mtk_crtc_atomic_disable(struct drm_crtc *crtc,
 				    struct drm_atomic_commit *state)
 {
 	struct mtk_crtc *mtk_crtc = to_mtk_crtc(crtc);
-	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[0];
+	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[mtk_crtc->config_comp_idx];
 	struct drm_device *dev = mtk_crtc->base.dev;
 	int i;
 
@@ -834,8 +985,8 @@ static void mtk_crtc_atomic_disable(struct drm_crtc *crtc,
 		return;
 
 	/* Set all pending plane state to disabled */
-	for (i = 0; i < mtk_crtc->layer_nr; i++) {
-		struct drm_plane *plane = &mtk_crtc->planes[i];
+	for (i = 0; i < mtk_crtc->hwlayer_nr; i++) {
+		struct drm_plane *plane = &mtk_crtc->hwlayers[i].plane;
 		struct mtk_plane_state *plane_state;
 
 		plane_state = to_mtk_plane_state(plane->state);
@@ -922,18 +1073,18 @@ static const struct drm_crtc_helper_funcs mtk_crtc_helper_funcs = {
 	.atomic_disable	= mtk_crtc_atomic_disable,
 };
 
-static int mtk_crtc_init(struct drm_device *drm, struct mtk_crtc *mtk_crtc,
-			 unsigned int pipe)
+static int mtk_crtc_init_drm_crtc(struct drm_device *drm, struct mtk_crtc *mtk_crtc,
+				  unsigned int pipe)
 {
 	struct drm_plane *primary = NULL;
 	struct drm_plane *cursor = NULL;
 	int i, ret;
 
-	for (i = 0; i < mtk_crtc->layer_nr; i++) {
-		if (mtk_crtc->planes[i].type == DRM_PLANE_TYPE_PRIMARY)
-			primary = &mtk_crtc->planes[i];
-		else if (mtk_crtc->planes[i].type == DRM_PLANE_TYPE_CURSOR)
-			cursor = &mtk_crtc->planes[i];
+	for (i = 0; i < mtk_crtc->hwlayer_nr; i++) {
+		if (mtk_crtc->hwlayers[i].plane.type == DRM_PLANE_TYPE_PRIMARY)
+			primary = &mtk_crtc->hwlayers[i].plane;
+		else if (mtk_crtc->hwlayers[i].plane.type == DRM_PLANE_TYPE_CURSOR)
+			cursor = &mtk_crtc->hwlayers[i].plane;
 	}
 
 	ret = drm_crtc_init_with_planes(drm, &mtk_crtc->base, primary, cursor,
@@ -948,23 +1099,6 @@ static int mtk_crtc_init(struct drm_device *drm, struct mtk_crtc *mtk_crtc,
 err_cleanup_crtc:
 	drm_crtc_cleanup(&mtk_crtc->base);
 	return ret;
-}
-
-static int mtk_crtc_num_comp_planes(struct mtk_crtc *mtk_crtc, int comp_idx)
-{
-	struct mtk_ddp_comp *comp;
-
-	if (comp_idx > 1)
-		return 0;
-
-	comp = mtk_crtc->ddp_comp[comp_idx];
-	if (!comp->funcs)
-		return 0;
-
-	if (comp_idx == 1 && !comp->funcs->bgclr_in_on)
-		return 0;
-
-	return mtk_ddp_comp_layer_nr(comp);
 }
 
 static inline
@@ -984,15 +1118,15 @@ static int mtk_crtc_init_comp_planes(struct drm_device *drm_dev,
 				     struct mtk_crtc *mtk_crtc,
 				     int comp_idx, int pipe)
 {
-	int num_planes = mtk_crtc_num_comp_planes(mtk_crtc, comp_idx);
 	struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[comp_idx];
+	unsigned int num_planes = mtk_ddp_comp_layer_nr(comp, comp_idx);
 	int i, ret;
 
 	for (i = 0; i < num_planes; i++) {
-		ret = mtk_plane_init(drm_dev,
-				&mtk_crtc->planes[mtk_crtc->layer_nr],
-				BIT(pipe),
-				mtk_crtc_plane_type(mtk_crtc->layer_nr, num_planes),
+		struct mtk_crtc_hw_layer *hwlayer = &mtk_crtc->hwlayers[mtk_crtc->hwlayer_nr];
+
+		ret = mtk_plane_init(drm_dev, &hwlayer->plane, BIT(pipe),
+				mtk_crtc_plane_type(mtk_crtc->hwlayer_nr, num_planes),
 				mtk_ddp_comp_supported_rotations(comp),
 				mtk_ddp_comp_get_blend_modes(comp),
 				mtk_ddp_comp_get_formats(comp),
@@ -1001,7 +1135,98 @@ static int mtk_crtc_init_comp_planes(struct drm_device *drm_dev,
 		if (ret)
 			return ret;
 
-		mtk_crtc->layer_nr++;
+		hwlayer->layer_stages[hwlayer->layer_stages_nr] = comp_idx;
+		hwlayer->layer_stages_nr++;
+
+		mtk_crtc->hwlayer_nr++;
+	}
+	return 0;
+}
+
+static struct mtk_crtc_hw_layer
+*mtk_crtc_find_hwlayer_with_comp(struct mtk_crtc *mtk_crtc, int comp)
+{
+	struct mtk_crtc_hw_layer *hwlayer;
+	int i, j;
+
+	for (i = 0; i < mtk_crtc->hwlayer_nr; i++) {
+		hwlayer = &mtk_crtc->hwlayers[i];
+
+		for (j = 0; j < hwlayer->layer_stages_nr; j++) {
+			if (hwlayer->layer_stages[j] == comp)
+				return hwlayer;
+		}
+	}
+
+	return NULL;
+}
+
+static int mtk_crtc_init_layer_stages(struct mtk_crtc *mtk_crtc)
+{
+	unsigned int prev_master_layer_component = UINT_MAX;
+	unsigned int master_layer_component = 0;
+	unsigned int comp_idx;
+
+	for (comp_idx = 0; comp_idx < mtk_crtc->ddp_comp_nr; comp_idx++) {
+		struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[comp_idx];
+		struct mtk_crtc_hw_layer *hwlayer = NULL;
+
+		/*
+		 * A hardware IP represented as a component with layer_nr > 0
+		 * is the master (and also the first layer stage), which may
+		 * then be composed of other multiple hardware-configurable
+		 * layer stages that are directly connected to it.
+		 *
+		 * Only quirk here is that, in some cases, some layer stages
+		 * may be connected together and hence not directly connected
+		 * to the master: this corner case is not getting a perfectly
+		 * accurate representation in the following code, as it treats
+		 * all of the additional layer stages as if they are directly
+		 * connected to the master.
+		 * That doesn't matter, because any special configuration for
+		 * this corner case is handled in the .connect handler of each
+		 * specific component driver.
+		 *
+		 * For example, this is a multi-component layer stage layout:
+		 *    FRAME_IN ->   _____ LAYER_MASTER ______
+		 *                 /       |        |        \  -> BLEND -> NEXT
+		 *              HW_STG1  HW_STG2  HW_STG3  HW_STGx    HW    HWIP
+		 *
+		 * And following, another one that gets handled (to simplify the
+		 * code) anyway like the first:
+		 * FRAME_IN -> LAYER_MASTER -> HW_STG1 -> HW_STG(x) -> NEXT HWIP
+		 *
+		 * For the moment, this also supposes that a component cannot be
+		 * both primary and secondary (so if it has layer_nr, stage_nr
+		 * will not be evaluated for such component).
+		 */
+		if (mtk_ddp_comp_layer_nr(comp, comp_idx)) {
+			master_layer_component = comp_idx;
+			continue;
+		}
+
+		/* If this component doesn't provide any stages, keep searching */
+		if (!mtk_ddp_comp_stage_nr(comp))
+			continue;
+
+		/*
+		 * If the index of the master layer component changed, find it
+		 * in the stack of registered layer components
+		 */
+		if (master_layer_component != prev_master_layer_component) {
+			hwlayer = mtk_crtc_find_hwlayer_with_comp(mtk_crtc, master_layer_component);
+			if (!hwlayer) {
+				drm_err(mtk_crtc->base.dev,
+					"Could not find layer master for %d!\n",
+					master_layer_component);
+				continue;
+			}
+			prev_master_layer_component = master_layer_component;
+		}
+
+		/* Add the newly found layer stage to the correct layer master */
+		hwlayer->layer_stages[hwlayer->layer_stages_nr] = comp_idx;
+		hwlayer->layer_stages_nr++;
 	}
 	return 0;
 }
@@ -1020,8 +1245,165 @@ struct device *mtk_crtc_dma_dev_get(struct drm_crtc *crtc)
 	return mtk_crtc->dma_dev;
 }
 
-int mtk_crtc_create(struct drm_device *drm_dev, const unsigned int *path,
-		    unsigned int path_len, int priv_data_index,
+static int mtk_crtc_find_suitable_dma_dev(struct mtk_crtc *mtk_crtc)
+{
+	struct mtk_ddp_comp *dma_comp = NULL, *dma_comp_mmu = NULL;
+	int i;
+
+	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
+		struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[i];
+
+		/*
+		 * Check if this is a legacy OVL_ADAPTOR component and, if so, this
+		 * has to forcefully be the DMA device for this CRTC: assign it to
+		 * dma_comp_mmu to force that.
+		 */
+		if (comp->type == MTK_DISP_OVL_ADAPTOR) {
+			dma_comp_mmu = comp;
+			break;
+		}
+
+		if (!comp->dev || !comp->dev->of_node)
+			continue;
+
+		/* Find the first device provides DMA... */
+		if (!dma_comp) {
+			if (of_property_present(comp->dev->of_node, "#dma-cells"))
+				dma_comp = comp;
+		}
+
+		/* ...and check if that device is also behind an IOMMU */
+		if (!of_property_present(comp->dev->of_node, "iommus"))
+			continue;
+
+		/* If a device behind IOMMU is found, this is the best outcome */
+		dma_comp_mmu = comp;
+		break;
+	}
+
+	if (dma_comp_mmu)
+		mtk_crtc->dma_dev = mtk_ddp_comp_dma_dev_get(dma_comp_mmu);
+	else if (dma_comp)
+		mtk_crtc->dma_dev = mtk_ddp_comp_dma_dev_get(dma_comp);
+	else
+		return -EINVAL;
+
+	return 0;
+}
+
+static int mtk_crtc_init_multi_controller_properties(struct device *dev,
+						     struct mtk_crtc *mtk_crtc)
+{
+	struct drm_crtc *crtc = &mtk_crtc->base;
+	unsigned long controllers_mask = 0;
+	struct mtk_drm_private *priv;
+	unsigned int i, j, k, z = 0;
+
+	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
+		u8 controller_id = mtk_crtc->ddp_comp[i]->controller_id;
+
+		if (controller_id > MTK_DISP_CONTROLLER_MAX_CONTROLLERS_NUM) {
+			dev_err(mtk_crtc->mmsys_dev, "Bad controller ID %u\n",
+				controller_id);
+			return -EINVAL;
+		}
+
+		if (!(controllers_mask & BIT(controller_id)))
+			mtk_crtc->num_controllers++;
+
+		controllers_mask |= BIT(controller_id);
+
+	}
+
+	mtk_crtc->controller_idmap = devm_kmalloc_array(dev, mtk_crtc->num_controllers,
+							sizeof(*mtk_crtc->controller_idmap),
+							GFP_KERNEL | __GFP_ZERO);
+	if (!mtk_crtc->controller_idmap)
+		return -ENOMEM;
+
+	dev_info(dev, "Bringing up %d Display Controllers for CRTC %u\n",
+		 mtk_crtc->num_controllers, crtc->base.id);
+
+	/* Shortcut: if this is a single controller pipelines, avoid iterating */
+	if (mtk_crtc->num_controllers == 1) {
+		mtk_crtc->controller_idmap[0] = mtk_crtc->ddp_comp[0]->controller_id;
+		return 0;
+	}
+
+	priv = crtc->dev->dev_private;
+
+	for_each_set_bit(i, &controllers_mask, MTK_DISP_CONTROLLER_MAX_CONTROLLERS_NUM) {
+		for (j = 0; j < mtk_crtc->ddp_comp_nr; j++) {
+			struct mtk_drm_private *controller_priv;
+
+			if (mtk_crtc->ddp_comp[j]->controller_id != i)
+				continue;
+
+			/* Find the matching Controller ID's mmsys device */
+			for (k = 0; k < priv->data->mmsys_dev_num; k++) {
+				controller_priv = priv->all_drm_private[k];
+
+				if (controller_priv->data->mmsys_id ==
+				    mtk_crtc->ddp_comp[j]->controller_id)
+					break;
+			}
+			if (k == priv->data->mmsys_dev_num)
+				continue;
+
+			mtk_crtc->controller_idmap[z] = mtk_crtc->ddp_comp[j]->controller_id;
+			z++;
+
+			/*
+			 * If this is a multi-controller path, link the follower
+			 * with the leader controller to make sure that any call
+			 * to Runtime PM acts on both.
+			 */
+			if (controller_priv->mmsys_dev != mtk_crtc->mmsys_dev)
+				device_link_add(controller_priv->mmsys_dev,
+						mtk_crtc->mmsys_dev,
+						DL_FLAG_PM_RUNTIME);
+
+			if (controller_priv->mutex_dev != priv->mutex_dev)
+				device_link_add(controller_priv->mutex_dev,
+						priv->mutex_dev,
+						DL_FLAG_PM_RUNTIME);
+			break;
+		}
+	}
+
+	return 0;
+}
+
+static int mtk_crtc_init_mutex(struct device *dev, struct mtk_crtc *mtk_crtc)
+{
+	unsigned int i;
+	int ret;
+
+	mtk_crtc->mutex = devm_kmalloc_array(dev, mtk_crtc->num_controllers,
+					     sizeof(*mtk_crtc->mutex), GFP_KERNEL);
+	if (!mtk_crtc->mutex)
+		return -ENOMEM;
+
+	for (i = 0; i < mtk_crtc->num_controllers; i++) {
+		u8 controller_num = mtk_crtc->controller_idmap[i];
+		struct mtk_drm_private *priv = mtk_crtc_get_controller_priv(mtk_crtc, controller_num);
+
+		if (!priv)
+			return -ENODEV;
+
+		mtk_crtc->mutex[i] = mtk_mutex_get(priv->mutex_dev);
+		if (IS_ERR(mtk_crtc->mutex[i])) {
+			ret = PTR_ERR(mtk_crtc->mutex[i]);
+			dev_err(dev, "Failed to get Controller %u MuteX: %d\n", i, ret);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
+int mtk_crtc_create(struct drm_device *drm_dev,
+		    enum mtk_crtc_path path_sel, int priv_data_index,
 		    const struct mtk_drm_route *conn_routes,
 		    unsigned int num_conn_routes)
 {
@@ -1029,108 +1411,217 @@ int mtk_crtc_create(struct drm_device *drm_dev, const unsigned int *path,
 	struct device *dev = drm_dev->dev;
 	struct mtk_crtc *mtk_crtc;
 	unsigned int num_comp_planes = 0;
+	unsigned int max_comp_stages = 0;
+	unsigned int output_path_len = 0;
 	int ret;
-	int i;
+	int i, j, k;
 	bool has_ctm = false;
 	uint gamma_lut_size = 0;
 	struct drm_crtc *tmp;
 	int crtc_i = 0;
-
-	if (!path)
-		return 0;
 
 	priv = priv->all_drm_private[priv_data_index];
 
 	drm_for_each_crtc(tmp, drm_dev)
 		crtc_i++;
 
-	for (i = 0; i < path_len; i++) {
-		enum mtk_ddp_comp_id comp_id = path[i];
-		struct device_node *node;
-		struct mtk_ddp_comp *comp;
+	for (j = 0; j < priv->data->mmsys_dev_num; j++) {
+		for (k = 0; k < priv->data->mmsys_dev_num; k++) {
+			struct mtk_drm_private *subsys_priv = priv->all_drm_private[k];
+			const struct mtk_drm_path_definition *ctrlr_path;
 
-		node = priv->comp_node[comp_id];
-		comp = &priv->ddp_comp[comp_id];
+			if (!subsys_priv)
+				continue;
 
-		/* Not all drm components have a DTS device node, such as ovl_adaptor,
-		 * which is the drm bring up sub driver
-		 */
-		if (!node && comp_id != DDP_COMPONENT_DRM_OVL_ADAPTOR) {
-			dev_info(dev,
-				"Not creating crtc %d because component %d is disabled or missing\n",
-				crtc_i, comp_id);
-			return 0;
-		}
+			ctrlr_path = &subsys_priv->data->output_paths[path_sel];
+			if (j != ctrlr_path->order)
+				continue;
 
-		if (!comp->dev) {
-			dev_err(dev, "Component %pOF not initialized\n", node);
-			return -ENODEV;
+			output_path_len += ctrlr_path->len;
 		}
 	}
+	if (!output_path_len)
+		return 0;
 
 	mtk_crtc = devm_kzalloc(dev,
-				struct_size(mtk_crtc, ddp_comp, path_len + (conn_routes ? 1 : 0)),
+				struct_size(mtk_crtc, ddp_comp,
+					    output_path_len + (conn_routes ? 1 : 0)),
 				GFP_KERNEL);
 	if (!mtk_crtc)
 		return -ENOMEM;
 
-	mtk_crtc->ddp_comp_nr = path_len;
+	mtk_crtc->ddp_comp_nr = output_path_len;
 	mtk_crtc->mmsys_dev = priv->mmsys_dev;
 
-	mtk_crtc->mutex = mtk_mutex_get(priv->mutex_dev);
-	if (IS_ERR(mtk_crtc->mutex)) {
-		ret = PTR_ERR(mtk_crtc->mutex);
-		dev_err(dev, "Failed to get mutex: %d\n", ret);
-		return ret;
+	/*
+	 * Reusing path_len to initialize the structure in the next loop to
+	 * reduce stack size of this function at least a little.
+	 */
+	output_path_len = 0;
+
+	for (j = 0; j < priv->data->mmsys_dev_num; j++) {
+		for (k = 0; k < priv->data->mmsys_dev_num; k++) {
+			struct mtk_drm_private *subsys_priv = priv->all_drm_private[k];
+			const struct mtk_drm_path_definition *ctrlr_path;
+
+			subsys_priv = priv->all_drm_private[k];
+			if (!subsys_priv)
+				continue;
+
+			ctrlr_path = &subsys_priv->data->output_paths[path_sel];
+
+			if (!ctrlr_path->len || ctrlr_path->order != j)
+				continue;
+
+			for (i = 0; i < ctrlr_path->len; i++) {
+				struct mtk_ddp_comp *comp;
+
+				comp = mtk_ddp_comp_find_by_id(&subsys_priv->hlist,
+							       ctrlr_path->comp[i].type,
+							       ctrlr_path->comp[i].inst_id);
+				if (!comp || !comp->dev) {
+					dev_err(dev,
+						"CRTC%d: Component %u-%u not initialized\n",
+						crtc_i, ctrlr_path->comp[i].type,
+						ctrlr_path->comp[i].inst_id);
+					ret = -ENODEV;
+					goto err_free_crtc;
+				}
+				mtk_crtc->ddp_comp[output_path_len] = comp;
+				output_path_len++;
+			}
+		}
 	}
 
-	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
-		unsigned int comp_id = path[i];
-		struct mtk_ddp_comp *comp;
+	/* Component 0 would be valid so initialize vblank and config idx to -EINVAL */
+	mtk_crtc->vblank_comp_idx = -EINVAL;
+	mtk_crtc->config_comp_idx = -EINVAL;
 
-		comp = &priv->ddp_comp[comp_id];
-		mtk_crtc->ddp_comp[i] = comp;
+	for (j = 0; j < mtk_crtc->ddp_comp_nr; j++) {
+		struct mtk_ddp_comp *comp = mtk_crtc->ddp_comp[j];
 
-		if (comp->funcs) {
-			if (comp->funcs->gamma_set && comp->funcs->gamma_get_lut_size) {
-				unsigned int lut_sz = mtk_ddp_gamma_get_lut_size(comp);
+		if (!comp->funcs)
+			continue;
 
-				if (lut_sz)
-					gamma_lut_size = lut_sz;
-			}
+		if (comp->funcs->gamma_set && comp->funcs->gamma_get_lut_size) {
+			unsigned int lut_sz = mtk_ddp_gamma_get_lut_size(comp);
 
-			if (comp->funcs->ctm_set)
-				has_ctm = true;
+			if (lut_sz)
+				gamma_lut_size = lut_sz;
 		}
+
+		if (comp->funcs->ctm_set)
+			has_ctm = true;
+
+		/*
+		 * Assumes that there can only be one vblank enabler per CRTC,
+		 * and that should there be more than one, the one that should
+		 * handle vblanks has to be the bottom-most HW component.
+		 */
+		if (mtk_crtc->vblank_comp_idx < 0 && comp->funcs->enable_vblank)
+			mtk_crtc->vblank_comp_idx = j;
+
+		/*
+		 * Assumes that there can only be one main configuration
+		 * component per CRTC, and that if more than one has to
+		 * be configured for at each frame, the main one would
+		 * take care of the config chain.
+		 *
+		 * As a note, such component has specific characteristics:
+		 * - It is configurable, and supports per-layer properties;
+		 * - It is a main layer component and not a layer stage;
+		 * - It is always the first one (the bottom-most) in the
+		 *   pipeline that has the characteristics explaned above.
+		 *
+		 * Such hardware is usually an OVL, RDMA or exDMA.
+		 *
+		 * This may change in the future with more complex pipelines.
+		 */
+		if (mtk_crtc->config_comp_idx < 0 && comp->funcs->config &&
+		    comp->funcs->layer_config && comp->funcs->layer_nr)
+			mtk_crtc->config_comp_idx = j;
+
+		num_comp_planes += mtk_ddp_comp_layer_nr(comp, 0);
+		max_comp_stages = MAX(mtk_ddp_comp_stage_nr(comp), max_comp_stages);
 
 		mtk_ddp_comp_register_vblank_cb(comp, mtk_crtc_ddp_irq,
 						&mtk_crtc->base);
 	}
 
-	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++)
-		num_comp_planes += mtk_crtc_num_comp_planes(mtk_crtc, i);
+	if (mtk_crtc->config_comp_idx < 0) {
+		dev_err(dev, "No HW component for layer configuration. Bailing out.\n");
+		ret = -EINVAL;
+		goto err_free_crtc;
+	}
 
-	mtk_crtc->planes = devm_kcalloc(dev, num_comp_planes,
-					sizeof(struct drm_plane), GFP_KERNEL);
-	if (!mtk_crtc->planes)
-		return -ENOMEM;
+	if (mtk_crtc->vblank_comp_idx < 0) {
+		dev_info(dev, "No vblank enabler component found! Expect timeouts.\n");
+		mtk_crtc->vblank_comp_idx = 0;
+	}
+
+	/*
+	 * On the older and/or simpler display controllers, each layer is single
+	 * stage, while newer ones are more complex and may have multiple stages
+	 * to form one full layer.
+	 *
+	 * In both cases, anyway, in order to form a complete layer for plane,
+	 * there will always be at least one layer stage, so the maximum number
+	 * of stages is always (1 + max_comp_stages): for this reason, just add 1.
+	 */
+	max_comp_stages++;
+
+	mtk_crtc->hwlayers = devm_kcalloc(dev, num_comp_planes,
+					  sizeof(*mtk_crtc->hwlayers),
+					  GFP_KERNEL);
+	if (!mtk_crtc->hwlayers) {
+		ret = -ENOMEM;
+		goto err_free_crtc;
+	}
+
+	for (i = 0; i < num_comp_planes; i++) {
+		struct mtk_crtc_hw_layer *comp_plane = &mtk_crtc->hwlayers[i];
+		comp_plane->layer_stages = devm_kcalloc(dev, max_comp_stages,
+							sizeof(*comp_plane->layer_stages),
+							GFP_KERNEL);
+		if (!comp_plane->layer_stages) {
+			ret = -ENOMEM;
+			goto err_free_layer_stages;
+		}
+	}
 
 	for (i = 0; i < mtk_crtc->ddp_comp_nr; i++) {
 		ret = mtk_crtc_init_comp_planes(drm_dev, mtk_crtc, i, crtc_i);
 		if (ret)
-			return ret;
+			goto err_free_layer_stages;
 	}
 
-	/*
-	 * Default to use the first component as the dma dev.
-	 * In the case of ovl_adaptor sub driver, it needs to use the
-	 * dma_dev_get function to get representative dma dev.
-	 */
-	mtk_crtc->dma_dev = mtk_ddp_comp_dma_dev_get(&priv->ddp_comp[path[0]]);
+	/* Initialize multi-stage only if present */
+	if (max_comp_stages > 1) {
+		ret = mtk_crtc_init_layer_stages(mtk_crtc);
+		if (ret)
+			goto err_free_layer_stages;
+	}
+	dev_dbg(dev, "Found %u layers composed by maximum of %u stage(s) each.\n",
+		mtk_crtc->hwlayer_nr, max_comp_stages);
 
-	ret = mtk_crtc_init(drm_dev, mtk_crtc, crtc_i);
+	ret = mtk_crtc_find_suitable_dma_dev(mtk_crtc);
+	if (ret) {
+		dev_err(dev, "Could not find appropriate DMA device!\n");
+		return -EINVAL;
+	}
+	dev_dbg(dev, "Using DMA device %pOF\n", mtk_crtc->dma_dev->of_node);
+
+	ret = mtk_crtc_init_drm_crtc(drm_dev, mtk_crtc, crtc_i);
 	if (ret < 0)
-		return ret;
+		goto err_free_layer_stages;
+
+	ret = mtk_crtc_init_multi_controller_properties(dev, mtk_crtc);
+	if (ret)
+		goto err_free_layer_stages;
+
+	ret = mtk_crtc_init_mutex(dev, mtk_crtc);
+	if (ret)
+		goto err_free_idmap;
 
 	if (gamma_lut_size)
 		drm_mode_crtc_set_gamma_size(&mtk_crtc->base, gamma_lut_size);
@@ -1181,19 +1672,22 @@ int mtk_crtc_create(struct drm_device *drm_dev, const unsigned int *path,
 
 	if (conn_routes) {
 		for (i = 0; i < num_conn_routes; i++) {
-			unsigned int comp_id = conn_routes[i].route_ddp;
-			struct device_node *node = priv->comp_node[comp_id];
-			struct mtk_ddp_comp *comp = &priv->ddp_comp[comp_id];
+			enum mtk_ddp_comp_type comp_type = conn_routes[i].route_ddp_type;
+			u8 comp_inst = conn_routes[i].route_ddp_inst_id;
+			struct mtk_ddp_comp *comp;
 
-			if (!comp->dev) {
-				dev_dbg(dev, "comp_id:%d, Component %pOF not initialized\n",
-					comp_id, node);
+			comp = mtk_ddp_comp_find_by_id(&priv->hlist, comp_type, comp_inst);
+			if (!comp || !comp->dev) {
+				dev_dbg(dev, "Cannot find conn_route component %u-%u.\n",
+					comp_type, comp_inst);
+
 				/* mark encoder_index to -1, if route comp device is not enabled */
-				comp->encoder_index = -1;
+				if (comp)
+					comp->encoder_index = -1;
 				continue;
 			}
 
-			mtk_ddp_comp_encoder_index_set(&priv->ddp_comp[comp_id]);
+			mtk_ddp_comp_encoder_index_set(comp);
 		}
 
 		mtk_crtc->num_conn_routes = num_conn_routes;
@@ -1204,4 +1698,19 @@ int mtk_crtc_create(struct drm_device *drm_dev, const unsigned int *path,
 	}
 
 	return 0;
+
+err_free_idmap:
+	devm_kfree(dev, mtk_crtc->controller_idmap);
+err_free_layer_stages:
+	for (i = 0; i < num_comp_planes; i++) {
+		struct mtk_crtc_hw_layer *comp_plane = &mtk_crtc->hwlayers[i];
+
+		if (comp_plane->layer_stages)
+			devm_kfree(dev, comp_plane->layer_stages);
+	}
+	devm_kfree(dev, mtk_crtc->hwlayers);
+err_free_crtc:
+	devm_kfree(dev, mtk_crtc);
+
+	return ret;
 }

@@ -1,0 +1,489 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright (C) 2026 Jolla Mobile Ltd
+ */
+
+/dts-v1/;
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/linux-event-codes.h>
+
+#include "mt6858.dtsi"
+#include "mt6363.dtsi"
+#include "mt6369.dtsi"
+
+/ {
+	model = "Jolla Phone (2026)";
+	compatible = "jolla,jp2601", "mediatek,mt6858";
+
+	aliases {
+		i2c0 = &i2c0;
+		i2c3 = &i2c3;
+		i2c4 = &i2c4;
+		i2c5 = &i2c5;
+		i2c7 = &i2c7;
+		i2c8 = &i2c8;
+		i2c12 = &i2c12;
+		serial0 = &uart0;
+	};
+
+	chosen {
+		stdout-path = "serial0:921600n8";
+	};
+
+	memory@40000000 {
+		device_type = "memory";
+		/* Bootloader fills this in based on hardware variant */
+		reg = <0x0 0x40000000 0x0 0x0>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/*
+		 * Reserved memory regions are allocated dynamically, and their
+		 * locations and sizes may vary depending on the firmware build
+		 * and the memory size. This node must exist for the bootloader
+		 * to fill them in.
+		 */
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		key-volumeup {
+			gpios = <&pio 120 GPIO_ACTIVE_LOW>;
+			debounce-interval = <16>;
+			linux,code = <KEY_VOLUMEUP>;
+			wakeup-source;
+		};
+
+		switch-hall {
+			gpios = <&pio 13 GPIO_ACTIVE_LOW>;
+			debounce-interval = <125>;
+			linux,input-type = <EV_SW>;
+			linux,code = <SW_LID>;
+			wakeup-source;
+		};
+
+		switch-side {
+			gpios = <&pio 1 GPIO_ACTIVE_HIGH>;
+			debounce-interval = <100>;
+			linux,input-type = <EV_SW>;
+			linux,code = <SW_MUTE_DEVICE>;
+			wakeup-source;
+		};
+	};
+};
+
+&cpu0 {
+	cpu-supply = <&mt6363_vbuck6>;
+};
+
+&cpu1 {
+	cpu-supply = <&mt6363_vbuck6>;
+};
+
+&cpu2 {
+	cpu-supply = <&mt6363_vbuck6>;
+};
+
+&cpu3 {
+	cpu-supply = <&mt6363_vbuck6>;
+};
+
+&cpu4 {
+	cpu-supply = <&mt6319_vbuck1>;
+};
+
+&cpu5 {
+	cpu-supply = <&mt6319_vbuck1>;
+};
+
+&cpu6 {
+	cpu-supply = <&mt6319_vbuck1>;
+};
+
+&cpu7 {
+	cpu-supply = <&mt6319_vbuck1>;
+};
+
+&gpu {
+	status = "okay";
+};
+
+&gpufreq {
+	/* The bootloader should enable this after assigning a memory region. */
+};
+
+&i2c0 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c0_pins>;
+	status = "okay";
+
+	/* TOH connector */
+};
+
+&i2c3 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c3_pins>;
+	status = "okay";
+
+	/* 0x08: NFC */
+};
+
+&i2c4 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c4_pins>;
+	status = "okay";
+
+	/* 0x1a: Front camera */
+	/* 0x51: Front camera EEPROM */
+};
+
+&i2c5 {
+	clock-frequency = <1000000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c5_pins>;
+
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	status = "okay";
+
+	/* 0x34 etc.: MT6720 PMIC */
+
+	/* connectivity supply */
+	regulator@75 {
+		compatible = "richtek,rt6160";
+		reg = <0x75>;
+		regulator-name = "rt6160-buckboost";
+		regulator-min-microvolt = <3450000>;
+		regulator-max-microvolt = <3650000>;
+		regulator-always-on;
+	};
+};
+
+&i2c7 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c7_pins>;
+	status = "okay";
+
+	/* 0x0c: Second camera focus */
+	/* 0x10: Second camera */
+	/* 0x50: Second camera EEPROM */
+};
+
+&i2c8 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c8_pins>;
+	status = "okay";
+
+	/* 0x0c: Main camera focus */
+	/* 0x1a: Main camera */
+	/* 0x50: Main camera EEPROM */
+};
+
+&i2c12 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c12_pins>;
+	status = "okay";
+
+	/* 0x45: AW2023 LED controller */
+};
+
+&mmc1 {
+	pinctrl-names = "default", "state_uhs";
+	pinctrl-0 = <&mmc1_pins>;
+	pinctrl-1 = <&mmc1_pins>;
+	cd-gpios = <&pio 9 GPIO_ACTIVE_HIGH>;
+	vmmc-supply = <&mt6369_vmch>;
+	vqmmc-supply = <&mt6369_vmc>;
+	max-frequency = <200000000>;
+	bus-width = <4>;
+	cap-sd-highspeed;
+	sd-uhs-sdr12;
+	sd-uhs-sdr25;
+	sd-uhs-sdr50;
+	sd-uhs-sdr104;
+	sd-uhs-ddr50;
+	no-sdio;
+	no-mmc;
+
+	status = "okay";
+};
+
+&mt6363_vbuck1 {
+	regulator-always-on;
+};
+
+&mt6363_vbuck2 {
+	regulator-always-on;
+};
+
+&mt6363_vbuck3 {
+	regulator-always-on;
+};
+
+&mt6363_vbuck4 {
+	regulator-always-on;
+};
+
+&mt6363_vbuck5 {
+	regulator-always-on;
+};
+
+&mt6363_vbuck6 {
+	regulator-min-microvolt = <300000>;
+	regulator-max-microvolt = <1193750>;
+	regulator-always-on;
+};
+
+&mt6363_vbuck7 {
+	regulator-always-on;
+};
+
+&mt6363_vsram_digrf {
+	regulator-always-on;
+};
+
+&mt6363_vsram_modem {
+	regulator-always-on;
+};
+
+&mt6363_vsram_cpub {
+	regulator-always-on;
+};
+
+&mt6363_vsram_cpum {
+	regulator-always-on;
+};
+
+&mt6363_vsram_cpul {
+	regulator-always-on;
+};
+
+&mt6363_vsram_apu {
+	regulator-always-on;
+};
+
+&mt6363_vcn15 {
+	regulator-always-on;
+};
+
+&mt6363_vufs18 {
+	regulator-always-on;
+};
+
+&mt6363_vm18 {
+	regulator-always-on;
+};
+
+&mt6363_vufs12 {
+	regulator-always-on;
+};
+
+&mt6363_vrf12 {
+	regulator-always-on;
+};
+
+&mt6369_vbuck1 {
+	regulator-always-on;
+};
+
+&mt6369_vsram_core {
+	regulator-always-on;
+};
+
+&mt6369_vaux18 {
+	regulator-always-on;
+};
+
+&mt6369_vio28 {
+	regulator-always-on;
+};
+
+&mt6369_vmc {
+	regulator-min-microvolt = <1200000>;
+	regulator-max-microvolt = <3300000>;
+};
+
+&mt6369_vmch {
+	regulator-min-microvolt = <1200000>;
+	regulator-max-microvolt = <3300000>;
+};
+
+&mt6369_vaud28 {
+	regulator-always-on;
+};
+
+&pio {
+	i2c0_pins: i2c0-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO139__FUNC_SCL0>,
+				 <PINMUX_GPIO140__FUNC_SDA0>;
+			bias-pull-up = <MTK_PULL_SET_RSEL_001>;
+			drive-strength = <4>;
+			input-enable;
+		};
+	};
+
+	i2c3_pins: i2c3-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO145__FUNC_SCL3>,
+				 <PINMUX_GPIO146__FUNC_SDA3>;
+			bias-pull-up = <MTK_PULL_SET_RSEL_001>;
+			drive-strength = <4>;
+			input-enable;
+		};
+	};
+
+	i2c4_pins: i2c4-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO147__FUNC_SCL4>,
+				 <PINMUX_GPIO148__FUNC_SDA4>;
+			bias-pull-up = <MTK_PULL_SET_RSEL_001>;
+			drive-strength = <4>;
+			input-enable;
+		};
+	};
+
+	i2c5_pins: i2c5-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO149__FUNC_SCL5>,
+				 <PINMUX_GPIO150__FUNC_SDA5>;
+			bias-pull-up = <MTK_PULL_SET_RSEL_001>;
+			drive-strength = <4>;
+			input-enable;
+		};
+	};
+
+	i2c7_pins: i2c7-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO153__FUNC_SCL7>,
+				 <PINMUX_GPIO154__FUNC_SDA7>;
+			bias-pull-up = <MTK_PULL_SET_RSEL_001>;
+			drive-strength = <4>;
+			input-enable;
+		};
+	};
+
+	i2c8_pins: i2c8-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO155__FUNC_SCL8>,
+				 <PINMUX_GPIO156__FUNC_SDA8>;
+			bias-pull-up = <MTK_PULL_SET_RSEL_001>;
+			drive-strength = <4>;
+			input-enable;
+		};
+	};
+
+	i2c12_pins: i2c12-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO163__FUNC_SCL12>,
+				 <PINMUX_GPIO164__FUNC_SDA12>;
+			bias-pull-up = <MTK_PULL_SET_RSEL_001>;
+			drive-strength = <4>;
+			input-enable;
+		};
+	};
+
+	mmc1_pins: mmc1-pins {
+		pins-cmd-dat {
+			pinmux = <PINMUX_GPIO83__FUNC_MSDC1_CMD>,
+				 <PINMUX_GPIO84__FUNC_MSDC1_DAT0>,
+				 <PINMUX_GPIO85__FUNC_MSDC1_DAT1>,
+				 <PINMUX_GPIO86__FUNC_MSDC1_DAT2>,
+				 <PINMUX_GPIO87__FUNC_MSDC1_DAT3>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
+			drive-strength = <8>;
+			input-enable;
+		};
+
+		pins-clk {
+			pinmux = <PINMUX_GPIO82__FUNC_MSDC1_CLK>;
+			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
+			drive-strength = <8>;
+		};
+	};
+
+	uart0_pins: uart0-pins {
+		pins {
+			pinmux = <PINMUX_GPIO49__FUNC_UTXD0>,
+				 <PINMUX_GPIO50__FUNC_URXD0>;
+		};
+	};
+};
+
+&spmi0 {
+	pmic@6 {
+		compatible = "mediatek,mt6319-regulator", "mediatek,mt6315-regulator";
+		reg = <0x6 SPMI_USID>;
+
+		regulators {
+			mt6319_vbuck1: vbuck1 {
+				regulator-name = "mt6319-vbuck1";
+				regulator-min-microvolt = <300000>;
+				regulator-max-microvolt = <1193750>;
+				regulator-enable-ramp-delay = <256>;
+				regulator-allowed-modes = <0 1 2>;
+				regulator-always-on;
+			};
+
+			vbuck3 {
+				regulator-name = "mt6319-vbuck3";
+				regulator-enable-ramp-delay = <256>;
+				regulator-allowed-modes = <0 1 2>;
+			};
+
+			vbuck4 {
+				regulator-name = "mt6319-vbuck4";
+				regulator-enable-ramp-delay = <256>;
+				regulator-allowed-modes = <0 1 2>;
+			};
+		};
+	};
+};
+
+&u2phy {
+	status = "okay";
+};
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pins>;
+	status = "okay";
+};
+
+&ufshci {
+	vcc-supply = <&mt6363_vemc>;
+	vccq-supply = <&mt6363_vufs12>;
+	vccq2-supply = <&mt6363_vufs18>;
+
+	status = "okay";
+};
+
+&ufsphy {
+	status = "okay";
+};
+
+&usb {
+	vusb33-supply = <&mt6369_vusb>;
+	maximum-speed = "high-speed";
+	dr_mode = "otg";
+	usb-role-switch;
+	role-switch-default-mode = "peripheral";
+
+	status = "okay";
+};
+
+&usb_host {
+	status = "okay";
+};

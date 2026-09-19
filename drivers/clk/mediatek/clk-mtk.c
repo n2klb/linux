@@ -13,6 +13,7 @@
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
+#include <linux/pm_clock.h>
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
 
@@ -500,6 +501,17 @@ static int __mtk_clk_simple_probe(struct platform_device *pdev,
 		r = devm_pm_runtime_enable(&pdev->dev);
 		if (r)
 			goto unmap_io;
+
+		if (mcd->need_runtime_pm_clk) {
+			r = devm_pm_clk_create(&pdev->dev);
+			if (r)
+				goto unmap_io;
+
+			r = of_pm_clk_add_clks(&pdev->dev);
+			if (r < 0)
+				goto unmap_io;
+		}
+
 		/*
 		 * Do a pm_runtime_resume_and_get() to workaround a possible
 		 * deadlock between clk_register() and the genpd framework.

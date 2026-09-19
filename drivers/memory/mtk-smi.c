@@ -283,6 +283,30 @@ static int mtk_smi_larb_config_port_gen2_general(struct device *dev)
 	return 0;
 }
 
+static const u8 mtk_smi_larb_mt6858_ostd[][SMI_LARB_PORT_NR_MAX] = {
+	[0] = {0x02, 0x08, 0x20, 0x08, 0x20, 0x10, 0x01},
+	[1] = {0x08, 0x20, 0x08, 0x20, 0x10, 0x01},
+	[2] = {0x05, 0x05, 0x01, 0x01, 0x01},
+	[4] = {0x19, 0x05, 0x01, 0x01, 0x01, 0x01, 0x02, 0x02, 0x05, 0x01},
+	[7] = {0x20, 0x02, 0x01, 0x01, 0x01, 0x04, 0x02, 0x01, 0x01, 0x02,
+	       0x03, 0x03, 0x0a, 0x0b, 0x03},
+	[9] = {0x06, 0x03, 0x0c, 0x06, 0x01, 0x04, 0x03, 0x01, 0x02, 0x04,
+	       0x05, 0x02, 0x04, 0x02, 0x03, 0x0b, 0x01, 0x04, 0x01, 0x01,
+	       0x01, 0x01, 0x01, 0x01, 0x01, 0x01},
+	[11] = {0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
+		0x01, 0x01, 0x01, 0x01, 0x01, 0x0b, 0x01, 0x04, 0x06, 0x05,
+		0x06, 0x01, 0x05, 0x02, 0x09, 0x05},
+	[13] = {0x02, 0x08, 0x08, 0x08, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0e,
+		0x04, 0x01, 0x06, 0x06, 0x02},
+	[14] = {0x01, 0x01, 0x01, 0x20, 0x0e, 0x04, 0x08, 0x08, 0x06, 0x04},
+	[16] = {0x1e, 0x0c, 0x02, 0x08, 0x0e, 0x02, 0x1e, 0x10, 0x04, 0x02,
+		0x02, 0x02, 0x02, 0x02, 0x04, 0x02, 0x04},
+	[17] = {0x1e, 0x0c, 0x02, 0x08, 0x0e, 0x02, 0x1e, 0x10, 0x04, 0x02,
+		0x02, 0x02, 0x02, 0x02, 0x04, 0x02, 0x04},
+	[19] = {0x02, 0x01, 0x03, 0x01},
+	[20] = {0x07, 0x07, 0x03, 0x03, 0x01, 0x01},
+};
+
 static const u8 mtk_smi_larb_mt6893_ostd[][SMI_LARB_PORT_NR_MAX] = {
 	[0] = {0x2, 0x6, 0x2, 0x2, 0x2, 0x28, 0x18, 0x18, 0x1, 0x1, 0x1, 0x8,
 	       0x8, 0x1, 0x3f},
@@ -522,6 +546,17 @@ static const struct mtk_smi_larb_gen mtk_smi_larb_mt6779 = {
 		/* DUMMY | IPU0 | IPU1 | CCU | MDLA */
 };
 
+static const struct mtk_smi_larb_gen mtk_smi_larb_mt6858 = {
+	.config_port                = mtk_smi_larb_config_port_gen2_general,
+	/*
+	 * Note: the SMC call used by MTK_SMI_FLAG_CFG_PORT_SEC_CTL is not
+	 * enabled in the default TF-A version shipped with Android.
+	 */
+	.flags_general	            = MTK_SMI_FLAG_THRT_UPDATE | MTK_SMI_FLAG_SW_FLAG |
+				      MTK_SMI_FLAG_CFG_PORT_SEC_CTL,
+	.ostd		            = mtk_smi_larb_mt6858_ostd,
+};
+
 static const struct mtk_smi_larb_gen mtk_smi_larb_mt6893 = {
 	.config_port                = mtk_smi_larb_config_port_gen2_general,
 	.flags_general	            = MTK_SMI_FLAG_THRT_UPDATE | MTK_SMI_FLAG_SW_FLAG,
@@ -581,6 +616,7 @@ static const struct of_device_id mtk_smi_larb_of_ids[] = {
 	{.compatible = "mediatek,mt2712-smi-larb", .data = &mtk_smi_larb_mt2712},
 	{.compatible = "mediatek,mt6779-smi-larb", .data = &mtk_smi_larb_mt6779},
 	{.compatible = "mediatek,mt6795-smi-larb", .data = &mtk_smi_larb_mt8173},
+	{.compatible = "mediatek,mt6858-smi-larb", .data = &mtk_smi_larb_mt6858},
 	{.compatible = "mediatek,mt6893-smi-larb", .data = &mtk_smi_larb_mt6893},
 	{.compatible = "mediatek,mt8167-smi-larb", .data = &mtk_smi_larb_mt8167},
 	{.compatible = "mediatek,mt8173-smi-larb", .data = &mtk_smi_larb_mt8173},
@@ -808,6 +844,12 @@ static const struct mtk_smi_common_plat mtk_smi_common_mt6795 = {
 	.init     = mtk_smi_common_mt6795_init,
 };
 
+static const struct mtk_smi_common_plat mtk_smi_common_mt6858 = {
+	.type     = MTK_SMI_GEN2,
+	.bus_sel  = F_MMU1_LARB(1) | F_MMU1_LARB(3) | F_MMU1_LARB(5) |
+		    F_MMU1_LARB(7),
+};
+
 static const struct mtk_smi_common_plat mtk_smi_common_mt6893 = {
 	.type     = MTK_SMI_GEN2,
 	.has_gals = true,
@@ -888,6 +930,7 @@ static const struct of_device_id mtk_smi_common_of_ids[] = {
 	{.compatible = "mediatek,mt2712-smi-common", .data = &mtk_smi_common_gen2},
 	{.compatible = "mediatek,mt6779-smi-common", .data = &mtk_smi_common_mt6779},
 	{.compatible = "mediatek,mt6795-smi-common", .data = &mtk_smi_common_mt6795},
+	{.compatible = "mediatek,mt6858-smi-common", .data = &mtk_smi_common_mt6858},
 	{.compatible = "mediatek,mt6893-smi-common", .data = &mtk_smi_common_mt6893},
 	{.compatible = "mediatek,mt8167-smi-common", .data = &mtk_smi_common_gen2},
 	{.compatible = "mediatek,mt8173-smi-common", .data = &mtk_smi_common_gen2},

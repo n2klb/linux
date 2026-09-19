@@ -19,6 +19,7 @@
 #include <linux/mfd/syscon.h>
 #include <linux/module.h>
 #include <linux/of_address.h>
+#include <linux/of_iommu.h>
 #include <linux/of_irq.h>
 #include <linux/of_platform.h>
 #include <linux/pci.h>
@@ -169,6 +170,7 @@ enum mtk_iommu_plat {
 	M4U_MT2712,
 	M4U_MT6779,
 	M4U_MT6795,
+	M4U_MT6858,
 	M4U_MT8167,
 	M4U_MT8173,
 	M4U_MT8183,
@@ -702,13 +704,35 @@ update_iova_region:
 
 static struct iommu_domain *mtk_iommu_domain_alloc_paging(struct device *dev)
 {
+	struct mtk_iommu_data *data = dev_iommu_priv_get(dev), *frstdata;
 	struct mtk_iommu_domain *dom;
+	unsigned int bankid;
+	int ret, region_id;
+
+	region_id = mtk_iommu_get_iova_region_id(dev, data->plat_data);
+	if (region_id < 0)
+		return ERR_PTR(region_id);
 
 	dom = kzalloc_obj(*dom);
 	if (!dom)
 		return NULL;
 	mutex_init(&dom->mutex);
 	dom->domain.pgsize_bitmap = SZ_4K | SZ_64K | SZ_1M | SZ_16M;
+
+	bankid = mtk_iommu_get_bank_id(dev, data->plat_data);
+	/* Data is in the frstdata in sharing pgtable case. */
+	frstdata = mtk_iommu_get_frst_data(data->hw_list);
+
+	mutex_lock(&frstdata->mutex);
+	ret = mtk_iommu_domain_finalise(dom, frstdata, region_id);
+	mutex_unlock(&frstdata->mutex);
+	if (ret) {
+		mutex_unlock(&dom->mutex);
+		kfree(dom);
+		return ERR_PTR(ret);
+	}
+
+	dom->bank = &data->bank[bankid];
 
 	return &dom->domain;
 }
@@ -721,9 +745,8 @@ static void mtk_iommu_domain_free(struct iommu_domain *domain)
 static int mtk_iommu_attach_device(struct iommu_domain *domain,
 				   struct device *dev, struct iommu_domain *old)
 {
-	struct mtk_iommu_data *data = dev_iommu_priv_get(dev), *frstdata;
+	struct mtk_iommu_data *data = dev_iommu_priv_get(dev);
 	struct mtk_iommu_domain *dom = to_mtk_domain(domain);
-	struct list_head *hw_list = data->hw_list;
 	struct device *m4udev = data->dev;
 	struct mtk_iommu_bank_data *bank;
 	unsigned int bankid;
@@ -734,21 +757,6 @@ static int mtk_iommu_attach_device(struct iommu_domain *domain,
 		return region_id;
 
 	bankid = mtk_iommu_get_bank_id(dev, data->plat_data);
-	mutex_lock(&dom->mutex);
-	if (!dom->bank) {
-		/* Data is in the frstdata in sharing pgtable case. */
-		frstdata = mtk_iommu_get_frst_data(hw_list);
-
-		mutex_lock(&frstdata->mutex);
-		ret = mtk_iommu_domain_finalise(dom, frstdata, region_id);
-		mutex_unlock(&frstdata->mutex);
-		if (ret) {
-			mutex_unlock(&dom->mutex);
-			return ret;
-		}
-		dom->bank = &data->bank[bankid];
-	}
-	mutex_unlock(&dom->mutex);
 
 	mutex_lock(&data->mutex);
 	bank = &data->bank[bankid];
@@ -1032,6 +1040,8 @@ static void mtk_iommu_get_resv_regions(struct device *dev,
 	const struct mtk_iommu_iova_region *resv, *curdom;
 	struct iommu_resv_region *region;
 	int prot = IOMMU_WRITE | IOMMU_READ;
+
+	of_iommu_get_resv_regions(dev, head);
 
 	if ((int)regionid < 0)
 		return;
@@ -1605,12 +1615,26 @@ static const struct mtk_iommu_plat_data mt6795_data = {
 static const unsigned int mt8192_larb_region_msk[MT8192_MULTI_REGION_NR_MAX][MTK_LARB_NR_MAX] = {
 	[0] = {~0, ~0},				/* Region0: larb0/1 */
 	[1] = {0, 0, 0, 0, ~0, ~0, 0, ~0},	/* Region1: larb4/5/7 */
-	[2] = {0, 0, ~0, 0, 0, 0, 0, 0,		/* Region2: larb2/9/11/13/14/16/17/18/19/20 */
+	[2] = {0, 0, ~0, 0, 0, 0, 0, 0,		/* Region2: larb2/9/11/13/14/16/17/18/19/20/21 */
 	       0, ~0, 0, ~0, 0, ~(u32)(BIT(9) | BIT(10)), ~(u32)(BIT(4) | BIT(5)), 0,
-	       ~0, ~0, ~0, ~0, ~0},
+	       ~0, ~0, ~0, ~0, ~0, ~0},
 	[3] = {0},
 	[4] = {[13] = BIT(9) | BIT(10)},	/* larb13 port9/10 */
 	[5] = {[14] = BIT(4) | BIT(5)},		/* larb14 port4/5 */
+};
+
+static const struct mtk_iommu_plat_data mt6858_data = {
+	.m4u_plat	= M4U_MT6858,
+	.flags		= OUT_ORDER_WR_EN | HAS_SUB_COMM_2BITS | IOVA_34_EN |
+			  MTK_IOMMU_TYPE_MM | PGTABLE_PA_35_EN,
+	.hw_list	= &m4ulist,
+	.inv_sel_reg	= REG_MMU_INV_SEL_GEN2,
+	.banks_num	= 5,
+	.banks_enable	= {true, false, false, false, false},
+	.iova_region	= mt8192_multi_dom,
+	.iova_region_nr	= ARRAY_SIZE(mt8192_multi_dom),
+	.iova_region_larb_msk = mt8192_larb_region_msk,
+	/* FIXME: find correct mapping */
 };
 
 static const struct mtk_iommu_plat_data mt6893_data = {
@@ -1903,6 +1927,7 @@ static const struct of_device_id mtk_iommu_of_ids[] = {
 	{ .compatible = "mediatek,mt2712-m4u", .data = &mt2712_data},
 	{ .compatible = "mediatek,mt6779-m4u", .data = &mt6779_data},
 	{ .compatible = "mediatek,mt6795-m4u", .data = &mt6795_data},
+	{ .compatible = "mediatek,mt6858-iommu-disp", .data = &mt6858_data},
 	{ .compatible = "mediatek,mt6893-iommu-mm", .data = &mt6893_data},
 	{ .compatible = "mediatek,mt8167-m4u", .data = &mt8167_data},
 	{ .compatible = "mediatek,mt8173-m4u", .data = &mt8173_data},

@@ -289,6 +289,9 @@ static int mtk_pll_prepare_setclr(struct clk_hw *hw)
 {
 	struct mtk_clk_pll *pll = to_mtk_clk_pll(hw);
 
+	if (!pll->en_set_addr)
+		return 0;
+
 	writel(BIT(pll->data->pll_en_bit), pll->en_set_addr);
 
 	/* Wait 20us after enable for the PLL to stabilize */
@@ -300,6 +303,9 @@ static int mtk_pll_prepare_setclr(struct clk_hw *hw)
 static void mtk_pll_unprepare_setclr(struct clk_hw *hw)
 {
 	struct mtk_clk_pll *pll = to_mtk_clk_pll(hw);
+
+	if (!pll->en_clr_addr)
+		return;
 
 	writel(BIT(pll->data->pll_en_bit), pll->en_clr_addr);
 }

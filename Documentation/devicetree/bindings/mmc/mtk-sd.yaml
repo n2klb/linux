@@ -40,6 +40,9 @@ properties:
               - mediatek,mt8195-mmc
               - mediatek,mt8365-mmc
           - const: mediatek,mt8183-mmc
+      - items:
+          - const: mediatek,mt6858-mmc
+          - const: mediatek,mt8189-mmc
 
   reg:
     minItems: 1
@@ -231,6 +234,32 @@ allOf:
             - const: source
             - const: hclk
             - const: source_cg
+            - const: bus_clk
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: mediatek,mt6858-mmc
+    then:
+      properties:
+        clocks:
+          minItems: 6
+          items:
+            - description: source clock
+            - description: macro clock
+            - description: HCLK which used for host
+            - description: independent source clock gate
+            - description: AXI bus clock gate
+            - description: bus clock used for internal register access
+        clock-names:
+          minItems: 6
+          items:
+            - const: source
+            - const: macro
+            - const: hclk
+            - const: source_cg
+            - const: axi_cg
             - const: bus_clk
 
   - if:

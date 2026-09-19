@@ -37,7 +37,7 @@
 #include "mmc_hsq.h"
 
 #define MAX_BD_NUM          1024
-#define MSDC_NR_CLOCKS      3
+#define MSDC_NR_CLOCKS      4
 
 /*--------------------------------------------------------------------------*/
 /* Common Definition                                                        */
@@ -2969,10 +2969,11 @@ static int msdc_of_clock_parse(struct platform_device *pdev,
 	host->bulk_clks[0].id = "pclk_cg";
 	host->bulk_clks[1].id = "axi_cg";
 	host->bulk_clks[2].id = "ahb_cg";
+	host->bulk_clks[3].id = "macro";
 	ret = devm_clk_bulk_get_optional(&pdev->dev, MSDC_NR_CLOCKS,
 					 host->bulk_clks);
 	if (ret) {
-		dev_err(&pdev->dev, "Cannot get pclk/axi/ahb clock gates\n");
+		dev_err(&pdev->dev, "Cannot get pclk/axi/ahb/macro clock gates\n");
 		return ret;
 	}
 

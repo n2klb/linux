@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2020 MediaTek Inc.
+ * Copyright (c) 2020-2025 MediaTek Inc.
+ * Copyright (c) 2026 Collabora Ltd.
+ *                    AngeloGioacchino Del Regno <angelogioacchino.delregno@collabora.com>
  */
 
 #ifndef _MTK_DISP_DRV_H_
@@ -10,12 +12,13 @@
 #include <linux/soc/mediatek/mtk-cmdq.h>
 #include <linux/soc/mediatek/mtk-mmsys.h>
 #include <linux/soc/mediatek/mtk-mutex.h>
+#include "mtk_ddp_comp.h"
 #include "mtk_mdp_rdma.h"
 #include "mtk_plane.h"
 
-int mtk_aal_clk_enable(struct device *dev);
-void mtk_aal_clk_disable(struct device *dev);
-void mtk_aal_config(struct device *dev, unsigned int w,
+int mtk_aal_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_aal_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_aal_config(struct mtk_ddp_comp *comp, unsigned int w,
 		    unsigned int h, unsigned int vrefresh,
 		    unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
 unsigned int mtk_aal_gamma_get_lut_size(struct device *dev);
@@ -23,22 +26,49 @@ void mtk_aal_gamma_set(struct device *dev, struct drm_crtc_state *state);
 void mtk_aal_start(struct device *dev);
 void mtk_aal_stop(struct device *dev);
 
+int mtk_blender_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_blender_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_blender_connect(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
+			 struct mtk_ddp_comp *next);
+void mtk_blender_config(struct mtk_ddp_comp *comp, unsigned int w,
+			unsigned int h, unsigned int vrefresh,
+			unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
+u32 mtk_blender_get_blend_modes(struct device *dev);
+void mtk_blender_layer_config(struct device *dev, unsigned int idx,
+				   struct mtk_plane_state *state,
+				   struct cmdq_pkt *cmdq_pkt);
+unsigned int mtk_blender_layerstage_nr(struct device *dev);
+void mtk_blender_start(struct device *dev);
+void mtk_blender_stop(struct device *dev);
+
 void mtk_ccorr_ctm_set(struct device *dev, struct drm_crtc_state *state);
-int mtk_ccorr_clk_enable(struct device *dev);
-void mtk_ccorr_clk_disable(struct device *dev);
-void mtk_ccorr_config(struct device *dev, unsigned int w,
+int mtk_ccorr_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_ccorr_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_ccorr_config(struct mtk_ddp_comp *comp, unsigned int w,
 		      unsigned int h, unsigned int vrefresh,
 		      unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
 void mtk_ccorr_start(struct device *dev);
 void mtk_ccorr_stop(struct device *dev);
 
 void mtk_color_bypass_shadow(struct device *dev);
-int mtk_color_clk_enable(struct device *dev);
-void mtk_color_clk_disable(struct device *dev);
-void mtk_color_config(struct device *dev, unsigned int w,
+int mtk_color_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_color_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_color_config(struct mtk_ddp_comp *comp, unsigned int w,
 		      unsigned int h, unsigned int vrefresh,
 		      unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
 void mtk_color_start(struct device *dev);
+
+void mtk_direct_link_connect(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
+			     struct mtk_ddp_comp *next);
+void mtk_direct_link_disconnect(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
+				struct mtk_ddp_comp *next);
+int mtk_direct_link_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_direct_link_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_direct_link_config(struct mtk_ddp_comp *comp,
+			    unsigned int w, unsigned int h, unsigned int vrefresh,
+			    unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
+void mtk_direct_link_mtx_remove(struct mtk_ddp_comp *comp, struct mtk_mutex *mutex);
+void mtk_direct_link_add(struct mtk_ddp_comp *comp, struct mtk_mutex *mutex);
 
 void mtk_dither_set_common(void __iomem *regs, struct cmdq_client_reg *cmdq_reg,
 			   unsigned int bpc, unsigned int cfg,
@@ -48,8 +78,8 @@ void mtk_dpi_start(struct device *dev);
 void mtk_dpi_stop(struct device *dev);
 unsigned int mtk_dpi_encoder_index(struct device *dev);
 
-int mtk_dsc_clk_enable(struct device *dev);
-void mtk_dsc_clk_disable(struct device *dev);
+int mtk_dsc_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_dsc_clk_disable(struct mtk_ddp_comp *comp);
 void mtk_dsc_setup(struct device *dev, struct drm_dsc_config *dsc_cfg);
 void mtk_dsc_start(struct device *dev);
 void mtk_dsc_stop(struct device *dev);
@@ -59,9 +89,27 @@ void mtk_dsi_ddp_stop(struct device *dev);
 unsigned int mtk_dsi_encoder_index(struct device *dev);
 struct drm_dsc_config *mtk_dsi_get_dsc_config(struct device *dev);
 
-int mtk_gamma_clk_enable(struct device *dev);
-void mtk_gamma_clk_disable(struct device *dev);
-void mtk_gamma_config(struct device *dev, unsigned int w,
+void mtk_dvo_start(struct device *dev);
+void mtk_dvo_stop(struct device *dev);
+unsigned int mtk_dvo_encoder_index(struct device *dev);
+
+int mtk_exdma_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_exdma_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_exdma_start(struct device *dev);
+void mtk_exdma_stop(struct device *dev);
+void mtk_exdma_config(struct mtk_ddp_comp *comp, unsigned int w,
+			   unsigned int h, unsigned int vrefresh,
+			   unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
+void mtk_exdma_layer_config(struct device *dev, unsigned int idx,
+				 struct mtk_plane_state *state,
+				 struct cmdq_pkt *cmdq_pkt);
+unsigned int mtk_exdma_layer_nr(struct device *dev, int pipeline_index);
+const u32 *mtk_exdma_get_formats(struct device *dev);
+size_t mtk_exdma_get_num_formats(struct device *dev);
+
+int mtk_gamma_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_gamma_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_gamma_config(struct mtk_ddp_comp *comp, unsigned int w,
 		      unsigned int h, unsigned int vrefresh,
 		      unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
 unsigned int mtk_gamma_get_lut_size(struct device *dev);
@@ -69,9 +117,9 @@ void mtk_gamma_set(struct device *dev, struct drm_crtc_state *state);
 void mtk_gamma_start(struct device *dev);
 void mtk_gamma_stop(struct device *dev);
 
-int mtk_merge_clk_enable(struct device *dev);
-void mtk_merge_clk_disable(struct device *dev);
-void mtk_merge_config(struct device *dev, unsigned int width,
+int mtk_merge_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_merge_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_merge_config(struct mtk_ddp_comp *comp, unsigned int width,
 		      unsigned int height, unsigned int vrefresh,
 		      unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
 void mtk_merge_start(struct device *dev);
@@ -84,12 +132,26 @@ void mtk_merge_stop_cmdq(struct device *dev, struct cmdq_pkt *cmdq_pkt);
 enum drm_mode_status mtk_merge_mode_valid(struct device *dev,
 					  const struct drm_display_mode *mode);
 
+void mtk_outproc_start(struct device *dev);
+void mtk_outproc_stop(struct device *dev);
+int mtk_outproc_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_outproc_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_outproc_config(struct mtk_ddp_comp *comp, unsigned int w,
+			     unsigned int h, unsigned int vrefresh,
+			     unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
+void mtk_outproc_register_vblank_cb(struct device *dev,
+					 void (*vblank_cb)(void *),
+					 void *vblank_cb_data);
+void mtk_outproc_unregister_vblank_cb(struct device *dev);
+void mtk_outproc_enable_vblank(struct device *dev);
+void mtk_outproc_disable_vblank(struct device *dev);
+
 void mtk_ovl_bgclr_in_on(struct device *dev);
 void mtk_ovl_bgclr_in_off(struct device *dev);
 void mtk_ovl_bypass_shadow(struct device *dev);
-int mtk_ovl_clk_enable(struct device *dev);
-void mtk_ovl_clk_disable(struct device *dev);
-void mtk_ovl_config(struct device *dev, unsigned int w,
+int mtk_ovl_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_ovl_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_ovl_config(struct mtk_ddp_comp *comp, unsigned int w,
 		    unsigned int h, unsigned int vrefresh,
 		    unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
 int mtk_ovl_layer_check(struct device *dev, unsigned int idx,
@@ -97,7 +159,7 @@ int mtk_ovl_layer_check(struct device *dev, unsigned int idx,
 void mtk_ovl_layer_config(struct device *dev, unsigned int idx,
 			  struct mtk_plane_state *state,
 			  struct cmdq_pkt *cmdq_pkt);
-unsigned int mtk_ovl_layer_nr(struct device *dev);
+unsigned int mtk_ovl_layer_nr(struct device *dev, int pipeline_index);
 void mtk_ovl_layer_on(struct device *dev, unsigned int idx,
 		      struct cmdq_pkt *cmdq_pkt);
 void mtk_ovl_layer_off(struct device *dev, unsigned int idx,
@@ -116,18 +178,18 @@ const u32 *mtk_ovl_get_formats(struct device *dev);
 size_t mtk_ovl_get_num_formats(struct device *dev);
 bool mtk_ovl_is_afbc_supported(struct device *dev);
 
-void mtk_ovl_adaptor_add_comp(struct device *dev, struct mtk_mutex *mutex);
-void mtk_ovl_adaptor_remove_comp(struct device *dev, struct mtk_mutex *mutex);
+void mtk_ovl_adaptor_add_comp(struct mtk_ddp_comp *comp, struct mtk_mutex *mutex);
+void mtk_ovl_adaptor_remove_comp(struct mtk_ddp_comp *comp, struct mtk_mutex *mutex);
 bool mtk_ovl_adaptor_is_comp_present(struct device_node *node);
-void mtk_ovl_adaptor_connect(struct device *dev, struct device *mmsys_dev,
-			     unsigned int next);
-void mtk_ovl_adaptor_disconnect(struct device *dev, struct device *mmsys_dev,
-				unsigned int next);
+void mtk_ovl_adaptor_connect(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
+			     struct mtk_ddp_comp *next);
+void mtk_ovl_adaptor_disconnect(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
+				struct mtk_ddp_comp *next);
 int mtk_ovl_adaptor_power_on(struct device *dev);
 void mtk_ovl_adaptor_power_off(struct device *dev);
-int mtk_ovl_adaptor_clk_enable(struct device *dev);
-void mtk_ovl_adaptor_clk_disable(struct device *dev);
-void mtk_ovl_adaptor_config(struct device *dev, unsigned int w,
+int mtk_ovl_adaptor_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_ovl_adaptor_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_ovl_adaptor_config(struct mtk_ddp_comp *comp, unsigned int w,
 			    unsigned int h, unsigned int vrefresh,
 			    unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
 void mtk_ovl_adaptor_layer_config(struct device *dev, unsigned int idx,
@@ -140,7 +202,7 @@ void mtk_ovl_adaptor_enable_vblank(struct device *dev);
 void mtk_ovl_adaptor_disable_vblank(struct device *dev);
 void mtk_ovl_adaptor_start(struct device *dev);
 void mtk_ovl_adaptor_stop(struct device *dev);
-unsigned int mtk_ovl_adaptor_layer_nr(struct device *dev);
+unsigned int mtk_ovl_adaptor_layer_nr(struct device *dev, int pipeline_index);
 struct device *mtk_ovl_adaptor_dma_dev_get(struct device *dev);
 u32 mtk_ovl_adaptor_get_blend_modes(struct device *dev);
 const u32 *mtk_ovl_adaptor_get_formats(struct device *dev);
@@ -149,12 +211,12 @@ enum drm_mode_status mtk_ovl_adaptor_mode_valid(struct device *dev,
 						const struct drm_display_mode *mode);
 
 void mtk_rdma_bypass_shadow(struct device *dev);
-int mtk_rdma_clk_enable(struct device *dev);
-void mtk_rdma_clk_disable(struct device *dev);
-void mtk_rdma_config(struct device *dev, unsigned int width,
+int mtk_rdma_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_rdma_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_rdma_config(struct mtk_ddp_comp *comp, unsigned int width,
 		     unsigned int height, unsigned int vrefresh,
 		     unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
-unsigned int mtk_rdma_layer_nr(struct device *dev);
+unsigned int mtk_rdma_layer_nr(struct device *dev, int pipeline_index);
 void mtk_rdma_layer_config(struct device *dev, unsigned int idx,
 			   struct mtk_plane_state *state,
 			   struct cmdq_pkt *cmdq_pkt);
@@ -171,8 +233,8 @@ size_t mtk_rdma_get_num_formats(struct device *dev);
 
 int mtk_mdp_rdma_power_on(struct device *dev);
 void mtk_mdp_rdma_power_off(struct device *dev);
-int mtk_mdp_rdma_clk_enable(struct device *dev);
-void mtk_mdp_rdma_clk_disable(struct device *dev);
+int mtk_mdp_rdma_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_mdp_rdma_clk_disable(struct mtk_ddp_comp *comp);
 void mtk_mdp_rdma_start(struct device *dev, struct cmdq_pkt *cmdq_pkt);
 void mtk_mdp_rdma_stop(struct device *dev, struct cmdq_pkt *cmdq_pkt);
 void mtk_mdp_rdma_config(struct device *dev, struct mtk_mdp_rdma_cfg *cfg,
@@ -180,12 +242,20 @@ void mtk_mdp_rdma_config(struct device *dev, struct mtk_mdp_rdma_cfg *cfg,
 const u32 *mtk_mdp_rdma_get_formats(struct device *dev);
 size_t mtk_mdp_rdma_get_num_formats(struct device *dev);
 
-int mtk_wdma_clk_enable(struct device *dev);
-void mtk_wdma_clk_disable(struct device *dev);
-void mtk_wdma_config(struct device *dev, unsigned int width,
+int mtk_tdshp_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_tdshp_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_tdshp_config(struct mtk_ddp_comp *comp, unsigned int w,
+			   unsigned int h, unsigned int vrefresh,
+			   unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
+void mtk_tdshp_start(struct device *dev);
+void mtk_tdshp_stop(struct device *dev);
+
+int mtk_wdma_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_wdma_clk_disable(struct mtk_ddp_comp *comp);
+void mtk_wdma_config(struct mtk_ddp_comp *comp, unsigned int width,
 		     unsigned int height, unsigned int vrefresh,
 		     unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
-unsigned int mtk_wdma_layer_nr(struct device *dev);
+unsigned int mtk_wdma_layer_nr(struct device *dev, int pipeline_index);
 void mtk_wdma_layer_config(struct device *dev, unsigned int idx,
 			   struct mtk_plane_state *state,
 			   struct cmdq_pkt *cmdq_pkt);
@@ -200,8 +270,8 @@ void mtk_wdma_disable_vblank(struct device *dev);
 const u32 *mtk_wdma_get_formats(struct device *dev);
 size_t mtk_wdma_get_num_formats(struct device *dev);
 
-int mtk_padding_clk_enable(struct device *dev);
-void mtk_padding_clk_disable(struct device *dev);
+int mtk_padding_clk_enable(struct mtk_ddp_comp *comp);
+void mtk_padding_clk_disable(struct mtk_ddp_comp *comp);
 void mtk_padding_start(struct device *dev);
 void mtk_padding_stop(struct device *dev);
 #endif

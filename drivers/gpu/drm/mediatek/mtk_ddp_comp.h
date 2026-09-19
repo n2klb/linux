@@ -6,6 +6,7 @@
 #ifndef MTK_DDP_COMP_H
 #define MTK_DDP_COMP_H
 
+#include <linux/hashtable.h>
 #include <linux/io.h>
 #include <linux/pm_runtime.h>
 #include <linux/soc/mediatek/mtk-cmdq.h>
@@ -13,6 +14,10 @@
 #include <linux/soc/mediatek/mtk-mutex.h>
 
 #include <drm/drm_modes.h>
+
+#define MTK_DISP_CONTROLLER_MAX_CONTROLLERS_NUM		7
+#define MTK_DISP_CONTROLLER_MAX_COMP_PER_PATH		24
+#define MTK_DISP_CONTROLLER_MAX_HW_COMP_INSTANCE	32
 
 struct device;
 struct device_node;
@@ -22,39 +27,19 @@ struct mtk_plane_state;
 struct drm_crtc_state;
 struct drm_dsc_config;
 
-enum mtk_ddp_comp_type {
-	MTK_DISP_AAL,
-	MTK_DISP_BLS,
-	MTK_DISP_CCORR,
-	MTK_DISP_COLOR,
-	MTK_DISP_DITHER,
-	MTK_DISP_DSC,
-	MTK_DISP_GAMMA,
-	MTK_DISP_MERGE,
-	MTK_DISP_MUTEX,
-	MTK_DISP_OD,
-	MTK_DISP_OVL,
-	MTK_DISP_OVL_2L,
-	MTK_DISP_OVL_ADAPTOR,
-	MTK_DISP_POSTMASK,
-	MTK_DISP_PWM,
-	MTK_DISP_RDMA,
-	MTK_DISP_UFOE,
-	MTK_DISP_WDMA,
-	MTK_DPI,
-	MTK_DP_INTF,
-	MTK_DSI,
-	MTK_DDP_COMP_TYPE_MAX,
-};
-
 struct mtk_ddp_comp;
 struct cmdq_pkt;
+
+struct mtk_drm_comp_list {
+	DECLARE_HASHTABLE(ddp_list, 8);
+};
+
 struct mtk_ddp_comp_funcs {
 	int (*power_on)(struct device *dev);
 	void (*power_off)(struct device *dev);
-	int (*clk_enable)(struct device *dev);
-	void (*clk_disable)(struct device *dev);
-	void (*config)(struct device *dev, unsigned int w,
+	int (*clk_enable)(struct mtk_ddp_comp *comp);
+	void (*clk_disable)(struct mtk_ddp_comp *comp);
+	void (*config)(struct mtk_ddp_comp *comp, unsigned int w,
 		       unsigned int h, unsigned int vrefresh,
 		       unsigned int bpc, struct cmdq_pkt *cmdq_pkt);
 	void (*dsc_setup)(struct device *dev, struct drm_dsc_config *dsc);
@@ -67,7 +52,8 @@ struct mtk_ddp_comp_funcs {
 	void (*enable_vblank)(struct device *dev);
 	void (*disable_vblank)(struct device *dev);
 	unsigned int (*supported_rotations)(struct device *dev);
-	unsigned int (*layer_nr)(struct device *dev);
+	unsigned int (*layer_nr)(struct device *dev, int pipeline_index);
+	unsigned int (*layerstage_nr)(struct device *dev);
 	int (*layer_check)(struct device *dev,
 			   unsigned int idx,
 			   struct mtk_plane_state *state);
@@ -86,10 +72,12 @@ struct mtk_ddp_comp_funcs {
 	const u32 *(*get_formats)(struct device *dev);
 	size_t (*get_num_formats)(struct device *dev);
 	bool (*is_afbc_supported)(struct device *dev);
-	void (*connect)(struct device *dev, struct device *mmsys_dev, unsigned int next);
-	void (*disconnect)(struct device *dev, struct device *mmsys_dev, unsigned int next);
-	void (*add)(struct device *dev, struct mtk_mutex *mutex);
-	void (*remove)(struct device *dev, struct mtk_mutex *mutex);
+	void (*connect)(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
+			struct mtk_ddp_comp *next);
+	void (*disconnect)(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
+			   struct mtk_ddp_comp *next);
+	void (*add)(struct mtk_ddp_comp *comp, struct mtk_mutex *mutex);
+	void (*remove)(struct mtk_ddp_comp *comp, struct mtk_mutex *mutex);
 	unsigned int (*encoder_index)(struct device *dev);
 	enum drm_mode_status (*mode_valid)(struct device *dev, const struct drm_display_mode *mode);
 };
@@ -97,9 +85,15 @@ struct mtk_ddp_comp_funcs {
 struct mtk_ddp_comp {
 	struct device *dev;
 	int irq;
-	unsigned int id;
+	enum mtk_ddp_comp_type type;
+	u8 inst_id;
+	u8 mtx_trig_id;
+	u8 controller_id;
 	int encoder_index;
 	const struct mtk_ddp_comp_funcs *funcs;
+	bool special_connect;
+
+	struct hlist_node lnode;
 };
 
 static inline int mtk_ddp_comp_power_on(struct mtk_ddp_comp *comp)
@@ -122,7 +116,7 @@ static inline void mtk_ddp_comp_power_off(struct mtk_ddp_comp *comp)
 static inline int mtk_ddp_comp_clk_enable(struct mtk_ddp_comp *comp)
 {
 	if (comp->funcs && comp->funcs->clk_enable)
-		return comp->funcs->clk_enable(comp->dev);
+		return comp->funcs->clk_enable(comp);
 
 	return 0;
 }
@@ -130,7 +124,7 @@ static inline int mtk_ddp_comp_clk_enable(struct mtk_ddp_comp *comp)
 static inline void mtk_ddp_comp_clk_disable(struct mtk_ddp_comp *comp)
 {
 	if (comp->funcs && comp->funcs->clk_disable)
-		comp->funcs->clk_disable(comp->dev);
+		comp->funcs->clk_disable(comp);
 }
 
 static inline
@@ -148,7 +142,7 @@ static inline void mtk_ddp_comp_config(struct mtk_ddp_comp *comp,
 				       struct cmdq_pkt *cmdq_pkt)
 {
 	if (comp->funcs && comp->funcs->config)
-		comp->funcs->config(comp->dev, w, h, vrefresh, bpc, cmdq_pkt);
+		comp->funcs->config(comp, w, h, vrefresh, bpc, cmdq_pkt);
 }
 
 static inline void mtk_ddp_comp_dsc_setup(struct mtk_ddp_comp *comp,
@@ -210,10 +204,18 @@ unsigned int mtk_ddp_comp_supported_rotations(struct mtk_ddp_comp *comp)
 	return DRM_MODE_ROTATE_0;
 }
 
-static inline unsigned int mtk_ddp_comp_layer_nr(struct mtk_ddp_comp *comp)
+static inline unsigned int mtk_ddp_comp_layer_nr(struct mtk_ddp_comp *comp, int pipeline_idx)
 {
 	if (comp->funcs && comp->funcs->layer_nr)
-		return comp->funcs->layer_nr(comp->dev);
+		return comp->funcs->layer_nr(comp->dev, pipeline_idx);
+
+	return 0;
+}
+
+static inline unsigned int mtk_ddp_comp_stage_nr(struct mtk_ddp_comp *comp)
+{
+	if (comp->funcs && comp->funcs->layerstage_nr)
+		return comp->funcs->layerstage_nr(comp->dev);
 
 	return 0;
 }
@@ -315,7 +317,7 @@ static inline bool mtk_ddp_comp_is_afbc_supported(struct mtk_ddp_comp *comp)
 static inline bool mtk_ddp_comp_add(struct mtk_ddp_comp *comp, struct mtk_mutex *mutex)
 {
 	if (comp->funcs && comp->funcs->add) {
-		comp->funcs->add(comp->dev, mutex);
+		comp->funcs->add(comp, mutex);
 		return true;
 	}
 	return false;
@@ -324,28 +326,46 @@ static inline bool mtk_ddp_comp_add(struct mtk_ddp_comp *comp, struct mtk_mutex 
 static inline bool mtk_ddp_comp_remove(struct mtk_ddp_comp *comp, struct mtk_mutex *mutex)
 {
 	if (comp->funcs && comp->funcs->remove) {
-		comp->funcs->remove(comp->dev, mutex);
+		comp->funcs->remove(comp, mutex);
 		return true;
 	}
 	return false;
 }
 
 static inline bool mtk_ddp_comp_connect(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
-					unsigned int next)
+					struct mtk_ddp_comp *next)
 {
-	if (comp->funcs && comp->funcs->connect) {
-		comp->funcs->connect(comp->dev, mmsys_dev, next);
-		return true;
+	if (comp->funcs) {
+		const struct mtk_ddp_comp_funcs *funcs;
+
+		if (next->special_connect)
+			funcs = next->funcs;
+		else
+			funcs = comp->funcs;
+
+		if (funcs->connect) {
+			funcs->connect(comp, mmsys_dev, next);
+			return true;
+		}
 	}
 	return false;
 }
 
 static inline bool mtk_ddp_comp_disconnect(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
-					   unsigned int next)
+					   struct mtk_ddp_comp *next)
 {
-	if (comp->funcs && comp->funcs->disconnect) {
-		comp->funcs->disconnect(comp->dev, mmsys_dev, next);
-		return true;
+	if (comp->funcs) {
+		const struct mtk_ddp_comp_funcs *funcs;
+
+		if (next->special_connect)
+			funcs = next->funcs;
+		else
+			funcs = comp->funcs;
+
+		if (funcs->disconnect) {
+			funcs->disconnect(comp, mmsys_dev, next);
+			return true;
+		}
 	}
 	return false;
 }
@@ -356,11 +376,32 @@ static inline void mtk_ddp_comp_encoder_index_set(struct mtk_ddp_comp *comp)
 		comp->encoder_index = (int)comp->funcs->encoder_index(comp->dev);
 }
 
-int mtk_ddp_comp_get_id(struct device_node *node,
+static inline struct mtk_ddp_comp
+*mtk_ddp_comp_find_by_id(struct mtk_drm_comp_list *hlist,
+			 const unsigned int comp_type,
+			 const unsigned int comp_inst_id)
+{
+	struct mtk_ddp_comp *ddp_comp;
+
+	hash_for_each_possible(hlist->ddp_list, ddp_comp, lnode, comp_type)
+		if (ddp_comp->inst_id == comp_inst_id)
+			return ddp_comp;
+
+	return NULL;
+}
+
+bool mtk_ddp_find_comp_dev_in_table(const struct mtk_drm_comp_list *hlist,
+				    const unsigned int comp_type,
+				    struct device *dev);
+bool mtk_ddp_comp_is_internal_comp(enum mtk_ddp_comp_type type);
+int mtk_ddp_comp_get_id(struct device_node *node, struct device_node *ep_node,
 			enum mtk_ddp_comp_type comp_type);
 int mtk_find_possible_crtcs(struct drm_device *drm, struct device *dev);
-int mtk_ddp_comp_init(struct device *dev, struct device_node *comp_node, struct mtk_ddp_comp *comp,
-		      unsigned int comp_id);
+int mtk_ddp_comp_init(struct device *dev, struct device_node *node,
+		      struct mtk_drm_comp_list *hlist,
+		      u8 comp_controller_id,
+		      enum mtk_ddp_comp_type comp_type, int comp_inst_id);
+int mtk_ddp_comp_get_mutex_trigger(struct device_node *node, unsigned int index);
 enum mtk_ddp_comp_type mtk_ddp_comp_get_type(unsigned int comp_id);
 void mtk_ddp_write(struct cmdq_pkt *cmdq_pkt, unsigned int value,
 		   struct cmdq_client_reg *cmdq_reg, void __iomem *regs,

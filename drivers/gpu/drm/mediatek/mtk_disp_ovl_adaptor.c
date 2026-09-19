@@ -20,6 +20,7 @@
 #include "mtk_ddp_comp.h"
 #include "mtk_disp_drv.h"
 #include "mtk_drm_drv.h"
+#include "mtk_drm_legacy.h"
 #include "mtk_ethdr.h"
 
 #define MTK_OVL_ADAPTOR_RDMA_MAX_WIDTH 1920
@@ -60,7 +61,7 @@ enum mtk_ovl_adaptor_comp_id {
 
 struct ovl_adaptor_comp_match {
 	enum mtk_ovl_adaptor_comp_type type;
-	enum mtk_ddp_comp_id comp_id;
+	enum mtk_ddp_comp_type comp_type;
 	int alias_id;
 	const struct mtk_ddp_comp_funcs *funcs;
 };
@@ -68,6 +69,7 @@ struct ovl_adaptor_comp_match {
 struct mtk_disp_ovl_adaptor {
 	struct device *ovl_adaptor_comp[OVL_ADAPTOR_ID_MAX];
 	struct device *mmsys_dev;
+	u8 mtx_trig_ids[OVL_ADAPTOR_ID_MAX];
 	bool children_bound;
 };
 
@@ -106,27 +108,27 @@ static const struct mtk_ddp_comp_funcs rdma = {
 };
 
 static const struct ovl_adaptor_comp_match comp_matches[OVL_ADAPTOR_ID_MAX] = {
-	[OVL_ADAPTOR_ETHDR0] = { OVL_ADAPTOR_TYPE_ETHDR, DDP_COMPONENT_ETHDR_MIXER, 0, &ethdr },
-	[OVL_ADAPTOR_MDP_RDMA0] = { OVL_ADAPTOR_TYPE_MDP_RDMA, DDP_COMPONENT_MDP_RDMA0, 0, &rdma },
-	[OVL_ADAPTOR_MDP_RDMA1] = { OVL_ADAPTOR_TYPE_MDP_RDMA, DDP_COMPONENT_MDP_RDMA1, 1, &rdma },
-	[OVL_ADAPTOR_MDP_RDMA2] = { OVL_ADAPTOR_TYPE_MDP_RDMA, DDP_COMPONENT_MDP_RDMA2, 2, &rdma },
-	[OVL_ADAPTOR_MDP_RDMA3] = { OVL_ADAPTOR_TYPE_MDP_RDMA, DDP_COMPONENT_MDP_RDMA3, 3, &rdma },
-	[OVL_ADAPTOR_MDP_RDMA4] = { OVL_ADAPTOR_TYPE_MDP_RDMA, DDP_COMPONENT_MDP_RDMA4, 4, &rdma },
-	[OVL_ADAPTOR_MDP_RDMA5] = { OVL_ADAPTOR_TYPE_MDP_RDMA, DDP_COMPONENT_MDP_RDMA5, 5, &rdma },
-	[OVL_ADAPTOR_MDP_RDMA6] = { OVL_ADAPTOR_TYPE_MDP_RDMA, DDP_COMPONENT_MDP_RDMA6, 6, &rdma },
-	[OVL_ADAPTOR_MDP_RDMA7] = { OVL_ADAPTOR_TYPE_MDP_RDMA, DDP_COMPONENT_MDP_RDMA7, 7, &rdma },
-	[OVL_ADAPTOR_MERGE0] = { OVL_ADAPTOR_TYPE_MERGE, DDP_COMPONENT_MERGE1, 1, &merge },
-	[OVL_ADAPTOR_MERGE1] = { OVL_ADAPTOR_TYPE_MERGE, DDP_COMPONENT_MERGE2, 2, &merge },
-	[OVL_ADAPTOR_MERGE2] = { OVL_ADAPTOR_TYPE_MERGE, DDP_COMPONENT_MERGE3, 3, &merge },
-	[OVL_ADAPTOR_MERGE3] = { OVL_ADAPTOR_TYPE_MERGE, DDP_COMPONENT_MERGE4, 4, &merge },
-	[OVL_ADAPTOR_PADDING0] = { OVL_ADAPTOR_TYPE_PADDING, DDP_COMPONENT_PADDING0, 0, &padding },
-	[OVL_ADAPTOR_PADDING1] = { OVL_ADAPTOR_TYPE_PADDING, DDP_COMPONENT_PADDING1, 1, &padding },
-	[OVL_ADAPTOR_PADDING2] = { OVL_ADAPTOR_TYPE_PADDING, DDP_COMPONENT_PADDING2, 2, &padding },
-	[OVL_ADAPTOR_PADDING3] = { OVL_ADAPTOR_TYPE_PADDING, DDP_COMPONENT_PADDING3, 3, &padding },
-	[OVL_ADAPTOR_PADDING4] = { OVL_ADAPTOR_TYPE_PADDING, DDP_COMPONENT_PADDING4, 4, &padding },
-	[OVL_ADAPTOR_PADDING5] = { OVL_ADAPTOR_TYPE_PADDING, DDP_COMPONENT_PADDING5, 5, &padding },
-	[OVL_ADAPTOR_PADDING6] = { OVL_ADAPTOR_TYPE_PADDING, DDP_COMPONENT_PADDING6, 6, &padding },
-	[OVL_ADAPTOR_PADDING7] = { OVL_ADAPTOR_TYPE_PADDING, DDP_COMPONENT_PADDING7, 7, &padding },
+	[OVL_ADAPTOR_ETHDR0] = { OVL_ADAPTOR_TYPE_ETHDR, MTK_DISP_ETHDR_MIXER, 0, &ethdr },
+	[OVL_ADAPTOR_MDP_RDMA0] = { OVL_ADAPTOR_TYPE_MDP_RDMA, MTK_DISP_MDP_RDMA, 0, &rdma },
+	[OVL_ADAPTOR_MDP_RDMA1] = { OVL_ADAPTOR_TYPE_MDP_RDMA, MTK_DISP_MDP_RDMA, 1, &rdma },
+	[OVL_ADAPTOR_MDP_RDMA2] = { OVL_ADAPTOR_TYPE_MDP_RDMA, MTK_DISP_MDP_RDMA, 2, &rdma },
+	[OVL_ADAPTOR_MDP_RDMA3] = { OVL_ADAPTOR_TYPE_MDP_RDMA, MTK_DISP_MDP_RDMA, 3, &rdma },
+	[OVL_ADAPTOR_MDP_RDMA4] = { OVL_ADAPTOR_TYPE_MDP_RDMA, MTK_DISP_MDP_RDMA, 4, &rdma },
+	[OVL_ADAPTOR_MDP_RDMA5] = { OVL_ADAPTOR_TYPE_MDP_RDMA, MTK_DISP_MDP_RDMA, 5, &rdma },
+	[OVL_ADAPTOR_MDP_RDMA6] = { OVL_ADAPTOR_TYPE_MDP_RDMA, MTK_DISP_MDP_RDMA, 6, &rdma },
+	[OVL_ADAPTOR_MDP_RDMA7] = { OVL_ADAPTOR_TYPE_MDP_RDMA, MTK_DISP_MDP_RDMA, 7, &rdma },
+	[OVL_ADAPTOR_MERGE0] = { OVL_ADAPTOR_TYPE_MERGE, MTK_DISP_MERGE, 1, &merge },
+	[OVL_ADAPTOR_MERGE1] = { OVL_ADAPTOR_TYPE_MERGE, MTK_DISP_MERGE, 2, &merge },
+	[OVL_ADAPTOR_MERGE2] = { OVL_ADAPTOR_TYPE_MERGE, MTK_DISP_MERGE, 3, &merge },
+	[OVL_ADAPTOR_MERGE3] = { OVL_ADAPTOR_TYPE_MERGE, MTK_DISP_MERGE, 4, &merge },
+	[OVL_ADAPTOR_PADDING0] = { OVL_ADAPTOR_TYPE_PADDING, MTK_DISP_PADDING, 0, &padding },
+	[OVL_ADAPTOR_PADDING1] = { OVL_ADAPTOR_TYPE_PADDING, MTK_DISP_PADDING, 1, &padding },
+	[OVL_ADAPTOR_PADDING2] = { OVL_ADAPTOR_TYPE_PADDING, MTK_DISP_PADDING, 2, &padding },
+	[OVL_ADAPTOR_PADDING3] = { OVL_ADAPTOR_TYPE_PADDING, MTK_DISP_PADDING, 3, &padding },
+	[OVL_ADAPTOR_PADDING4] = { OVL_ADAPTOR_TYPE_PADDING, MTK_DISP_PADDING, 4, &padding },
+	[OVL_ADAPTOR_PADDING5] = { OVL_ADAPTOR_TYPE_PADDING, MTK_DISP_PADDING, 5, &padding },
+	[OVL_ADAPTOR_PADDING6] = { OVL_ADAPTOR_TYPE_PADDING, MTK_DISP_PADDING, 6, &padding },
+	[OVL_ADAPTOR_PADDING7] = { OVL_ADAPTOR_TYPE_PADDING, MTK_DISP_PADDING, 7, &padding },
 };
 
 void mtk_ovl_adaptor_layer_config(struct device *dev, unsigned int idx,
@@ -206,11 +208,11 @@ void mtk_ovl_adaptor_layer_config(struct device *dev, unsigned int idx,
 	mtk_ethdr_layer_config(ethdr, idx, state, cmdq_pkt);
 }
 
-void mtk_ovl_adaptor_config(struct device *dev, unsigned int w,
+void mtk_ovl_adaptor_config(struct mtk_ddp_comp *comp, unsigned int w,
 			    unsigned int h, unsigned int vrefresh,
 			    unsigned int bpc, struct cmdq_pkt *cmdq_pkt)
 {
-	struct mtk_disp_ovl_adaptor *ovl_adaptor = dev_get_drvdata(dev);
+	struct mtk_disp_ovl_adaptor *ovl_adaptor = dev_get_drvdata(comp->dev);
 
 	mtk_ethdr_config(ovl_adaptor->ovl_adaptor_comp[OVL_ADAPTOR_ETHDR0], w, h,
 			 vrefresh, bpc, cmdq_pkt);
@@ -304,41 +306,49 @@ void mtk_ovl_adaptor_power_off(struct device *dev)
 	power_off(dev, OVL_ADAPTOR_ID_MAX);
 }
 
-int mtk_ovl_adaptor_clk_enable(struct device *dev)
+int mtk_ovl_adaptor_clk_enable(struct mtk_ddp_comp *comp)
 {
-	struct mtk_disp_ovl_adaptor *ovl_adaptor = dev_get_drvdata(dev);
-	struct device *comp;
+	struct mtk_disp_ovl_adaptor *ovl_adaptor = dev_get_drvdata(comp->dev);
 	int ret;
 	int i;
 
 	for (i = 0; i < OVL_ADAPTOR_ID_MAX; i++) {
-		comp = ovl_adaptor->ovl_adaptor_comp[i];
-		if (!comp || !comp_matches[i].funcs->clk_enable)
+		struct mtk_ddp_comp adaptor_comp;
+
+		if (!ovl_adaptor->ovl_adaptor_comp[i] ||
+		    !comp_matches[i].funcs->clk_enable)
 			continue;
-		ret = comp_matches[i].funcs->clk_enable(comp);
+
+		adaptor_comp.dev = ovl_adaptor->ovl_adaptor_comp[i];
+
+		ret = comp_matches[i].funcs->clk_enable(&adaptor_comp);
 		if (ret) {
-			dev_err(dev, "Failed to enable clock %d, err %d\n", i, ret);
+			dev_err(comp->dev, "Failed to enable clock %d, err %d\n", i, ret);
 			while (--i >= 0)
-				comp_matches[i].funcs->clk_disable(comp);
+				comp_matches[i].funcs->clk_disable(&adaptor_comp);
 			return ret;
 		}
 	}
 	return 0;
 }
 
-void mtk_ovl_adaptor_clk_disable(struct device *dev)
+void mtk_ovl_adaptor_clk_disable(struct mtk_ddp_comp *comp)
 {
-	struct mtk_disp_ovl_adaptor *ovl_adaptor = dev_get_drvdata(dev);
-	struct device *comp;
+	struct mtk_disp_ovl_adaptor *ovl_adaptor = dev_get_drvdata(comp->dev);
 	int i;
 
 	for (i = 0; i < OVL_ADAPTOR_ID_MAX; i++) {
-		comp = ovl_adaptor->ovl_adaptor_comp[i];
-		if (!comp || !comp_matches[i].funcs->clk_disable)
+		struct mtk_ddp_comp adaptor_comp;
+
+		if (!ovl_adaptor->ovl_adaptor_comp[i] ||
+		    !comp_matches[i].funcs->clk_disable)
 			continue;
-		comp_matches[i].funcs->clk_disable(comp);
+
+		adaptor_comp.dev = ovl_adaptor->ovl_adaptor_comp[i];
+
+		comp_matches[i].funcs->clk_disable(&adaptor_comp);
 		if (i < OVL_ADAPTOR_MERGE0)
-			pm_runtime_put(comp);
+			pm_runtime_put(adaptor_comp.dev);
 	}
 }
 
@@ -358,7 +368,7 @@ enum drm_mode_status mtk_ovl_adaptor_mode_valid(struct device *dev,
 	return MODE_OK;
 }
 
-unsigned int mtk_ovl_adaptor_layer_nr(struct device *dev)
+unsigned int mtk_ovl_adaptor_layer_nr(struct device *dev, int pipeline_index)
 {
 	return MTK_OVL_ADAPTOR_LAYER_NUM;
 }
@@ -421,52 +431,62 @@ size_t mtk_ovl_adaptor_get_num_formats(struct device *dev)
 	return mtk_mdp_rdma_get_num_formats(ovl_adaptor->ovl_adaptor_comp[OVL_ADAPTOR_MDP_RDMA0]);
 }
 
-void mtk_ovl_adaptor_add_comp(struct device *dev, struct mtk_mutex *mutex)
+void mtk_ovl_adaptor_add_comp(struct mtk_ddp_comp *comp, struct mtk_mutex *mutex)
 {
 	int i;
-	struct mtk_disp_ovl_adaptor *ovl_adaptor = dev_get_drvdata(dev);
+	struct mtk_disp_ovl_adaptor *ovl_adaptor = dev_get_drvdata(comp->dev);
 
 	for (i = 0; i < OVL_ADAPTOR_ID_MAX; i++) {
 		if (!ovl_adaptor->ovl_adaptor_comp[i])
 			continue;
-		mtk_mutex_add_comp(mutex, comp_matches[i].comp_id);
+
+		mtk_mutex_add_trigger(mutex,
+				      comp_matches[i].comp_type,
+				      comp_matches[i].alias_id,
+				      ovl_adaptor->mtx_trig_ids[i]);
 	}
 }
 
-void mtk_ovl_adaptor_remove_comp(struct device *dev, struct mtk_mutex *mutex)
+void mtk_ovl_adaptor_remove_comp(struct mtk_ddp_comp *comp, struct mtk_mutex *mutex)
 {
 	int i;
-	struct mtk_disp_ovl_adaptor *ovl_adaptor = dev_get_drvdata(dev);
+	struct mtk_disp_ovl_adaptor *ovl_adaptor = dev_get_drvdata(comp->dev);
 
 	for (i = 0; i < OVL_ADAPTOR_ID_MAX; i++) {
 		if (!ovl_adaptor->ovl_adaptor_comp[i])
 			continue;
-		mtk_mutex_remove_comp(mutex, comp_matches[i].comp_id);
+
+		mtk_mutex_remove_trigger(mutex,
+					 comp_matches[i].comp_type,
+					 comp_matches[i].alias_id,
+					 ovl_adaptor->mtx_trig_ids[i]);
 	}
 }
 
-void mtk_ovl_adaptor_connect(struct device *dev, struct device *mmsys_dev, unsigned int next)
+void mtk_ovl_adaptor_connect(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
+			     struct mtk_ddp_comp *next)
 {
-	mtk_mmsys_ddp_connect(mmsys_dev, DDP_COMPONENT_ETHDR_MIXER, next);
-	mtk_mmsys_ddp_connect(mmsys_dev, DDP_COMPONENT_MDP_RDMA0, DDP_COMPONENT_MERGE1);
-	mtk_mmsys_ddp_connect(mmsys_dev, DDP_COMPONENT_MDP_RDMA1, DDP_COMPONENT_MERGE1);
-	mtk_mmsys_ddp_connect(mmsys_dev, DDP_COMPONENT_MDP_RDMA2, DDP_COMPONENT_MERGE2);
-	mtk_mmsys_ddp_connect(mmsys_dev, DDP_COMPONENT_MERGE1, DDP_COMPONENT_ETHDR_MIXER);
-	mtk_mmsys_ddp_connect(mmsys_dev, DDP_COMPONENT_MERGE2, DDP_COMPONENT_ETHDR_MIXER);
-	mtk_mmsys_ddp_connect(mmsys_dev, DDP_COMPONENT_MERGE3, DDP_COMPONENT_ETHDR_MIXER);
-	mtk_mmsys_ddp_connect(mmsys_dev, DDP_COMPONENT_MERGE4, DDP_COMPONENT_ETHDR_MIXER);
+	mtk_mmsys_hw_connect(mmsys_dev, MTK_DISP_ETHDR_MIXER, 0, next->type, next->inst_id);
+	mtk_mmsys_hw_connect(mmsys_dev, MTK_DISP_MDP_RDMA, 0, MTK_DISP_MERGE, 1);
+	mtk_mmsys_hw_connect(mmsys_dev, MTK_DISP_MDP_RDMA, 1, MTK_DISP_MERGE, 1);
+	mtk_mmsys_hw_connect(mmsys_dev, MTK_DISP_MDP_RDMA, 2, MTK_DISP_MERGE, 2);
+	mtk_mmsys_hw_connect(mmsys_dev, MTK_DISP_MERGE, 1, MTK_DISP_ETHDR_MIXER, 0);
+	mtk_mmsys_hw_connect(mmsys_dev, MTK_DISP_MERGE, 2, MTK_DISP_ETHDR_MIXER, 0);
+	mtk_mmsys_hw_connect(mmsys_dev, MTK_DISP_MERGE, 3, MTK_DISP_ETHDR_MIXER, 0);
+	mtk_mmsys_hw_connect(mmsys_dev, MTK_DISP_MERGE, 4, MTK_DISP_ETHDR_MIXER, 0);
 }
 
-void mtk_ovl_adaptor_disconnect(struct device *dev, struct device *mmsys_dev, unsigned int next)
+void mtk_ovl_adaptor_disconnect(struct mtk_ddp_comp *comp, struct device *mmsys_dev,
+				struct mtk_ddp_comp *next)
 {
-	mtk_mmsys_ddp_disconnect(mmsys_dev, DDP_COMPONENT_ETHDR_MIXER, next);
-	mtk_mmsys_ddp_disconnect(mmsys_dev, DDP_COMPONENT_MDP_RDMA0, DDP_COMPONENT_MERGE1);
-	mtk_mmsys_ddp_disconnect(mmsys_dev, DDP_COMPONENT_MDP_RDMA1, DDP_COMPONENT_MERGE1);
-	mtk_mmsys_ddp_disconnect(mmsys_dev, DDP_COMPONENT_MDP_RDMA2, DDP_COMPONENT_MERGE2);
-	mtk_mmsys_ddp_disconnect(mmsys_dev, DDP_COMPONENT_MERGE1, DDP_COMPONENT_ETHDR_MIXER);
-	mtk_mmsys_ddp_disconnect(mmsys_dev, DDP_COMPONENT_MERGE2, DDP_COMPONENT_ETHDR_MIXER);
-	mtk_mmsys_ddp_disconnect(mmsys_dev, DDP_COMPONENT_MERGE3, DDP_COMPONENT_ETHDR_MIXER);
-	mtk_mmsys_ddp_disconnect(mmsys_dev, DDP_COMPONENT_MERGE4, DDP_COMPONENT_ETHDR_MIXER);
+	mtk_mmsys_hw_disconnect(mmsys_dev, MTK_DISP_ETHDR_MIXER, 0, next->type, next->inst_id);
+	mtk_mmsys_hw_disconnect(mmsys_dev, MTK_DISP_MDP_RDMA, 0, MTK_DISP_MERGE, 1);
+	mtk_mmsys_hw_disconnect(mmsys_dev, MTK_DISP_MDP_RDMA, 1, MTK_DISP_MERGE, 1);
+	mtk_mmsys_hw_disconnect(mmsys_dev, MTK_DISP_MDP_RDMA, 2, MTK_DISP_MERGE, 2);
+	mtk_mmsys_hw_disconnect(mmsys_dev, MTK_DISP_MERGE, 1, MTK_DISP_ETHDR_MIXER, 0);
+	mtk_mmsys_hw_disconnect(mmsys_dev, MTK_DISP_MERGE, 2, MTK_DISP_ETHDR_MIXER, 0);
+	mtk_mmsys_hw_disconnect(mmsys_dev, MTK_DISP_MERGE, 3, MTK_DISP_ETHDR_MIXER, 0);
+	mtk_mmsys_hw_disconnect(mmsys_dev, MTK_DISP_MERGE, 4, MTK_DISP_ETHDR_MIXER, 0);
 }
 
 static int ovl_adaptor_comp_get_id(struct device *dev, struct device_node *node,
@@ -517,6 +537,17 @@ bool mtk_ovl_adaptor_is_comp_present(struct device_node *node)
 	if (type >= OVL_ADAPTOR_TYPE_NUM)
 		return false;
 
+	/* Check if this is one of the MERGE components used in OVL Adaptor */
+	if (type == OVL_ADAPTOR_TYPE_MERGE) {
+		int id = of_alias_get_id(node, private_comp_stem[type]);
+
+		for (int i = OVL_ADAPTOR_MERGE0; i <= OVL_ADAPTOR_MERGE3; i++)
+			if (comp_matches[i].alias_id == id)
+				return true;
+
+		return false;
+	}
+
 	/*
 	 * In the context of mediatek-drm, ETHDR, MDP_RDMA and Padding are
 	 * used exclusively by OVL Adaptor: if this component is not one of
@@ -534,7 +565,8 @@ static void ovl_adaptor_put_device(void *_dev)
 	put_device(dev);
 }
 
-static int ovl_adaptor_comp_init(struct device *dev, struct component_match **match)
+static int ovl_adaptor_comp_init(struct device *dev, struct device_node *mutex_node,
+				 struct component_match **match)
 {
 	struct mtk_disp_ovl_adaptor *priv = dev_get_drvdata(dev);
 	struct device_node *parent;
@@ -543,10 +575,12 @@ static int ovl_adaptor_comp_init(struct device *dev, struct component_match **ma
 	parent = dev->parent->parent->of_node->parent;
 
 	for_each_child_of_node_scoped(parent, node) {
-		enum mtk_ovl_adaptor_comp_type type;
+		enum mtk_ovl_adaptor_comp_type ovla_type;
+		enum mtk_ddp_comp_type ddp_type;
+		u8 ddp_inst_id, mtx_id;
 		int id, ret;
 
-		ret = ovl_adaptor_of_get_ddp_comp_type(node, &type);
+		ret = ovl_adaptor_of_get_ddp_comp_type(node, &ovla_type);
 		if (ret)
 			continue;
 
@@ -556,12 +590,18 @@ static int ovl_adaptor_comp_init(struct device *dev, struct component_match **ma
 			continue;
 		}
 
-		id = ovl_adaptor_comp_get_id(dev, node, type);
+		id = ovl_adaptor_comp_get_id(dev, node, ovla_type);
 		if (id < 0) {
 			dev_warn(dev, "Skipping unknown component %pOF\n",
 				 node);
 			continue;
 		}
+
+		ddp_type = comp_matches[id].comp_type;
+		ddp_inst_id = comp_matches[id].alias_id;
+		mtx_id = mtk_drm_legacy_get_ovl_adaptor_mutex_trig_id(ddp_type,
+								      ddp_inst_id,
+								      mutex_node);
 
 		comp_pdev = of_find_device_by_node(node);
 		if (!comp_pdev)
@@ -573,6 +613,7 @@ static int ovl_adaptor_comp_init(struct device *dev, struct component_match **ma
 			return ret;
 
 		priv->ovl_adaptor_comp[id] = &comp_pdev->dev;
+		priv->mtx_trig_ids[id] = mtx_id;
 
 		drm_of_component_match_add(dev, match, component_compare_of, node);
 		dev_dbg(dev, "Adding component match for %pOF\n", node);
@@ -635,6 +676,7 @@ static const struct component_master_ops mtk_disp_ovl_adaptor_master_ops = {
 
 static int mtk_disp_ovl_adaptor_probe(struct platform_device *pdev)
 {
+	struct mtk_drm_private *drm_private = pdev->dev.platform_data;
 	struct mtk_disp_ovl_adaptor *priv;
 	struct device *dev = &pdev->dev;
 	struct component_match *match = NULL;
@@ -646,11 +688,11 @@ static int mtk_disp_ovl_adaptor_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, priv);
 
-	ret = ovl_adaptor_comp_init(dev, &match);
+	ret = ovl_adaptor_comp_init(dev, drm_private->mutex_node, &match);
 	if (ret < 0)
 		return ret;
 
-	priv->mmsys_dev = pdev->dev.platform_data;
+	priv->mmsys_dev = drm_private->mmsys_dev;
 
 	ret = component_master_add_with_match(dev, &mtk_disp_ovl_adaptor_master_ops, match);
 	if (ret)

@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/*
+ * Copyright (C) 2023 MediaTek Inc.
+ * Copyright (C) 2026 Jolla Mobile Ltd
+ */
+
+#include <dt-bindings/iio/adc/mediatek,mt6369-auxadc.h>
+#include <dt-bindings/spmi/spmi.h>
+
+&spmi0 {
+	mt6369: pmic@5 {
+		compatible = "mediatek,mt6369";
+		reg = <0x5 SPMI_USID>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		interrupts = <5 64 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-controller;
+		#interrupt-cells = <3>;
+
+		regulators@240 {
+			compatible = "mediatek,mt6369-regulator";
+			reg = <0x240>;
+
+			mt6369_vbuck1: vbuck1 {
+				regulator-name = "mt6369-vbuck1";
+				regulator-enable-ramp-delay = <180>;
+				regulator-allowed-modes = <0 1 2>;
+			};
+
+			mt6369_vsram_core: vsram-core {
+				regulator-name = "mt6369-vsram-core";
+				regulator-enable-ramp-delay = <180>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vaux18: vaux18 {
+				regulator-name = "mt6369-vaux18";
+				regulator-enable-ramp-delay = <240>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vusb: vusb {
+				regulator-name = "mt6369-vusb";
+				regulator-enable-ramp-delay = <720>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vibr: vibr {
+				regulator-name = "mt6369-vibr";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vio28: vio28 {
+				regulator-name = "mt6369-vio28";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vfp: vfp {
+				regulator-name = "mt6369-vfp";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vtp: vtp {
+				regulator-name = "mt6369-vtp";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vmch: vmch {
+				regulator-name = "mt6369-vmch";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vmc: vmc {
+				regulator-name = "mt6369-vmc";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vcn33_1: vcn33-1 {
+				regulator-name = "mt6369-vcn33-1";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vcn33_2: vcn33-2 {
+				regulator-name = "mt6369-vcn33-2";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vaud28: vaud28 {
+				regulator-name = "mt6369-vaud28";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vant18: vant18 {
+				regulator-name = "mt6369-vant18";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+
+			mt6369_vefuse: vefuse {
+				regulator-name = "mt6369-vefuse";
+				regulator-enable-ramp-delay = <680>;
+				regulator-allowed-modes = <0 2>;
+			};
+		};
+
+		adc@1000 {
+			compatible = "mediatek,mt6369-auxadc";
+			reg = <0x1000>;
+			#io-channel-cells = <1>;
+
+			chip-temp {
+				channel = <MT6369_AUXADC_CHIP_TEMP>;
+			};
+
+			accdet {
+				channel = <MT6369_AUXADC_ACCDET>;
+			};
+
+			vcore-temp {
+				channel = <MT6369_AUXADC_VCORE_TEMP>;
+			};
+
+			vproc-temp {
+				channel = <MT6369_AUXADC_VPROC_TEMP>;
+			};
+
+			vgpu-temp {
+				channel = <MT6369_AUXADC_VGPU_TEMP>;
+			};
+
+			hpofs-cal {
+				channel = <MT6369_AUXADC_HPOFS_CAL>;
+			};
+
+			vin1 {
+				channel = <MT6369_AUXADC_VIN1>;
+			};
+
+			vin2 {
+				channel = <MT6369_AUXADC_VIN2>;
+			};
+		};
+	};
+};

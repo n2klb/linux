@@ -1,0 +1,21 @@
+/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
+/*
+ * Copyright (c) 2026 Jolla Mobile Ltd
+ */
+
+#ifndef _DT_BINDINGS_RESET_CONTROLLER_MT6858
+#define _DT_BINDINGS_RESET_CONTROLLER_MT6858
+
+/* UFSCFG_AO resets */
+#define MT6858_UFSAO_RST_UFS_MPHY		0
+
+/* UFSCFG_PDN resets */
+#define MT6858_UFSPDN_RST_UFS_UNIPRO		0
+#define MT6858_UFSPDN_RST_UFS_CRYPTO		1
+#define MT6858_UFSPDN_RST_UFSHCI		2
+
+/* DISPSYS resets */
+#define MT6858_DISPSYS_SW0_RST_B_DISP_DSI0	24
+
+#endif  /* _DT_BINDINGS_RESET_CONTROLLER_MT6858 */
+
