@@ -48,6 +48,8 @@ properties:
           - mediatek,mt2712-smi-common
           - mediatek,mt6779-smi-common
           - mediatek,mt6795-smi-common
+          - mediatek,mt6858-smi-common
+          - mediatek,mt6858-smi-sub-common
           - mediatek,mt6893-smi-common
           - mediatek,mt8167-smi-common
           - mediatek,mt8173-smi-common
@@ -173,6 +175,8 @@ allOf:
           enum:
             - mediatek,mt2712-smi-common
             - mediatek,mt6795-smi-common
+            - mediatek,mt6858-smi-common
+            - mediatek,mt6858-smi-sub-common
             - mediatek,mt8167-smi-common
             - mediatek,mt8173-smi-common
             - mediatek,mt8189-smi-common
