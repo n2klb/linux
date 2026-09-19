@@ -6,6 +6,7 @@
 #include <dt-bindings/clock/mediatek,mt6858-clk.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/phy/phy.h>
 #include "mt6858-pinfunc.h"
 
 / {
@@ -457,6 +458,33 @@
 			#clock-cells = <1>;
 		};
 
+		usb: usb@11201000 {
+			compatible = "mediatek,mt6858-mtu3", "mediatek,mtu3";
+			reg = <0x0 0x11201000 0x0 0x2e00>,
+			      <0x0 0x11203e00 0x0 0x100>;
+			reg-names = "mac", "ippc";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0x0 0x0 0x11200000 0x3f00>;
+			interrupts = <GIC_SPI 394 IRQ_TYPE_LEVEL_HIGH 0>;
+			clocks = <&cksys CLK_TOP_USB_TOP>,
+				 <&cksys CLK_TOP_USB_XHCI>,
+				 <&cksys CLK_TOP_USB_FRMCNT>;
+			clock-names = "sys_ck", "xhci_ck", "frmcnt_ck";
+			phys = <&u2port0 PHY_TYPE_USB2>;
+			status = "disabled";
+
+			usb_host: usb@0 {
+				compatible = "mediatek,mt6858-xhci", "mediatek,mtk-xhci";
+				reg = <0x0 0x1000>;
+				reg-names = "mac";
+				intrerupts = <GIC_SPI 395 IRQ_TYPE_LEVEL_HIGH 0>;
+				clocks = <&cksys CLK_TOP_USB_XHCI>;
+				clock-names = "sys_ck";
+				status = "disabled";
+			};
+		};
+
 		i2c1: i2c@11280000 {
 			compatible = "mediatek,mt6858-i2c", "mediatek,mt8188-i2c";
 			reg = <0x0 0x11280000 0x0 0x1000>,
@@ -646,6 +674,25 @@
 			reg = <0x0 0x11d04000 0x0 0x1000>;
 			clocks = <&pericfg_ao CLK_PERAO_I2C>;
 			#clock-cells = <1>;
+		};
+
+		u2phy: usb-phy@11e10000 {
+			compatible = "mediatek,mt6858-xsphy", "mediatek,xsphy";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0x0 0x0 0x11e10000 0x400>;
+			status = "disabled";
+
+			u2port0: usb-phy@0 {
+				reg = <0x0 0x400>;
+				clocks = <&clk26m>;
+				clock-names = "ref";
+				#phy-cells = <1>;
+				mediatek,eye-vrt = <2>;
+				mediatek,rx-sqth = <4>;
+				mediatek,rev4 = <1>;
+				mediatek,rev6 = <2>;
+			};
 		};
 
 		watchdog: watchdog@1c00a000 {
