@@ -109,6 +109,14 @@
 	cpu-supply = <&mt6319_vbuck1>;
 };
 
+&gpu {
+	status = "okay";
+};
+
+&gpufreq {
+	/* The bootloader should enable this after assigning a memory region. */
+};
+
 &i2c0 {
 	clock-frequency = <400000>;
 	pinctrl-names = "default";
