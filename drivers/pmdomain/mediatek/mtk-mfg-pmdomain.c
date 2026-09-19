@@ -9,6 +9,7 @@
 #include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/container_of.h>
+#include <linux/cpuidle.h>
 #include <linux/iopoll.h>
 #include <linux/nvmem-provider.h>
 #include <linux/mailbox_client.h>
@@ -124,6 +125,15 @@
 #define GF_REG_OPP_TABLE_STK_S		0x16c4
 #define GF_REG_LIMIT_TABLE		0x1d54
 #define GF_REG_GPM3_TABLE		0x223C
+
+#define GF_V2_REG_FREQ_OUT_GPU		0x0054
+#define GF_V2_REG_FREQ_OUT_STK		0x0058
+#define GF_V2_REG_SHADER_PRESENT	0x00E0
+#define GF_V2_REG_OPP_TABLE_GPU		0x0484
+#define GF_V2_REG_OPP_TABLE_STK		0x0B14
+#define GF_V2_REG_OPP_TABLE_GPU_S	0x11A4
+#define GF_V2_REG_OPP_TABLE_STK_S	0x1834
+#define GF_V2_REG_LIMIT_TABLE		0x1EC4
 
 #define MFG_MT8196_E2_ID		0x101
 #define GPUEB_SLEEP_MAGIC		0x55667788UL
@@ -284,6 +294,11 @@ struct mtk_mfg_variant {
 	unsigned int num_regulators;
 	/** @turbo_below: opp indices below this value are considered turbo */
 	unsigned int turbo_below;
+	u32 freq_out_offs;
+	u32 shader_present_offs;
+	u32 gpu_tbl_offs;
+	u32 stk_tbl_offs;
+	bool has_ghpm;
 	int (*init)(struct mtk_mfg *mfg);
 };
 
@@ -307,7 +322,7 @@ static unsigned long mtk_mfg_recalc_rate_gpu(struct clk_hw *hw,
 {
 	struct mtk_mfg *mfg = container_of(hw, struct mtk_mfg, clk_core_hw);
 
-	return readl(mfg->shared_mem + GF_REG_FREQ_OUT_GPU) * HZ_PER_KHZ;
+	return readl(mfg->shared_mem + mfg->variant->freq_out_offs) * HZ_PER_KHZ;
 }
 
 static unsigned long mtk_mfg_recalc_rate_stack(struct clk_hw *hw,
@@ -315,7 +330,7 @@ static unsigned long mtk_mfg_recalc_rate_stack(struct clk_hw *hw,
 {
 	struct mtk_mfg *mfg = container_of(hw, struct mtk_mfg, clk_stack_hw);
 
-	return readl(mfg->shared_mem + GF_REG_FREQ_OUT_STK) * HZ_PER_KHZ;
+	return readl(mfg->shared_mem + mfg->variant->freq_out_offs + 4) * HZ_PER_KHZ;
 }
 
 static const struct clk_ops mtk_mfg_clk_gpu_ops = {
@@ -345,6 +360,9 @@ static int mtk_mfg_eb_on(struct mtk_mfg *mfg)
 	struct device *dev = &mfg->pdev->dev;
 	u32 val;
 	int ret;
+
+	if (!mfg->variant->has_ghpm)
+		return 0;
 
 	/*
 	 * If MFG is already on from e.g. the bootloader, skip doing the
@@ -402,6 +420,9 @@ static int mtk_mfg_eb_off(struct mtk_mfg *mfg)
 	u32 val;
 	int ret;
 
+	if (!mfg->variant->has_ghpm)
+		return 0;
+
 	ret = mbox_send_message(mfg->slp_mbox->ch, &msg);
 	if (ret < 0) {
 		dev_err(dev, "Cannot send sleep command: %pe\n", ERR_PTR(ret));
@@ -439,13 +460,26 @@ static int mtk_mfg_send_ipi(struct mtk_mfg *mfg, struct mtk_mfg_ipi_msg *msg)
 
 	msg->magic = mfg->ipi_magic;
 
+	/*
+	 * Prevent the CPU from entering the "system-vcore" idle state, which
+	 * appears to suspend the GPUEB coprocessor and may cause a timeout.
+	 * This is a bit of an overkill because it keeps all CPUs awake just
+	 * to avoid a deep idle state while polling for one command, but there
+	 * seems to be no other clean way to do this other than removing the
+	 * idle state entirely, which would consume more power over a longer
+	 * time period.
+	 */
+	cpuidle_pause_and_lock();
+
 	ret = mbox_send_message(mfg->gf_mbox->ch, msg);
 	if (ret < 0) {
+		cpuidle_resume_and_unlock();
 		dev_err(dev, "Cannot send GPUFreq IPI command: %pe\n", ERR_PTR(ret));
 		return ret;
 	}
 
 	wait = wait_for_completion_timeout(&mfg->gf_mbox->rx_done, msecs_to_jiffies(500));
+	cpuidle_resume_and_unlock();
 	if (!wait)
 		return -ETIMEDOUT;
 
@@ -502,9 +536,14 @@ static int mtk_mfg_set_oppidx(struct mtk_mfg *mfg, unsigned int opp_idx)
 	if (opp_idx >= mfg->num_gpu_opps)
 		return -EINVAL;
 
-	msg.cmd = CMD_FIX_DUAL_TARGET_OPPIDX;
-	msg.u.dual_commit.gpu_oppidx = opp_idx;
-	msg.u.dual_commit.stack_oppidx = opp_idx;
+	if (mfg->num_stack_opps == 0) {
+		msg.cmd = CMD_FIX_TARGET_OPPIDX;
+		msg.u.oppidx = opp_idx;
+	} else {
+		msg.cmd = CMD_FIX_DUAL_TARGET_OPPIDX;
+		msg.u.dual_commit.gpu_oppidx = opp_idx;
+		msg.u.dual_commit.stack_oppidx = opp_idx;
+	}
 
 	ret = mtk_mfg_send_ipi(mfg, &msg);
 	if (ret) {
@@ -550,7 +589,7 @@ static int mtk_mfg_read_opp_tables(struct mtk_mfg *mfg)
 	}
 
 	for (i = 0; i < mfg->num_gpu_opps; i++) {
-		memcpy_fromio(&e, mfg->shared_mem + GF_REG_OPP_TABLE_GPU + i * sizeof(e),
+		memcpy_fromio(&e, mfg->shared_mem + mfg->variant->gpu_tbl_offs + i * sizeof(e),
 			      sizeof(e));
 		if (mem_is_zero(&e, sizeof(e))) {
 			dev_err(dev, "ran into an empty GPU OPP at index %u\n",
@@ -565,7 +604,7 @@ static int mtk_mfg_read_opp_tables(struct mtk_mfg *mfg)
 	}
 
 	for (i = 0; i < mfg->num_stack_opps; i++) {
-		memcpy_fromio(&e, mfg->shared_mem + GF_REG_OPP_TABLE_STK + i * sizeof(e),
+		memcpy_fromio(&e, mfg->shared_mem + mfg->variant->stk_tbl_offs + i * sizeof(e),
 			      sizeof(e));
 		if (mem_is_zero(&e, sizeof(e))) {
 			dev_err(dev, "ran into an empty Stack OPP at index %u\n",
@@ -582,16 +621,32 @@ static int mtk_mfg_read_opp_tables(struct mtk_mfg *mfg)
 	return 0;
 }
 
-static const char *const mtk_mfg_mt8196_clk_names[] = {
+static const char *const mtk_mfg_mt6858_regulators[] = {
 	"core",
-	"stack0",
-	"stack1",
+	"sram",
+};
+
+static const struct mtk_mfg_variant mtk_mfg_mt6858_variant = {
+	.regulator_names = mtk_mfg_mt6858_regulators,
+	.num_regulators = ARRAY_SIZE(mtk_mfg_mt6858_regulators),
+	.turbo_below = 7, /* FIXME */
+	.freq_out_offs = GF_V2_REG_FREQ_OUT_GPU,
+	.shader_present_offs = GF_V2_REG_SHADER_PRESENT,
+	.gpu_tbl_offs = GF_V2_REG_OPP_TABLE_GPU,
+	.stk_tbl_offs = GF_V2_REG_OPP_TABLE_STK,
+	.has_ghpm = false,
 };
 
 static const char *const mtk_mfg_mt8196_regulators[] = {
 	"core",
 	"stack",
 	"sram",
+};
+
+static const char *const mtk_mfg_mt8196_clk_names[] = {
+	"core",
+	"stack0",
+	"stack1",
 };
 
 static int mtk_mfg_mt8196_init(struct mtk_mfg *mfg)
@@ -621,6 +676,11 @@ static const struct mtk_mfg_variant mtk_mfg_mt8196_variant = {
 	.regulator_names = mtk_mfg_mt8196_regulators,
 	.num_regulators = ARRAY_SIZE(mtk_mfg_mt8196_regulators),
 	.turbo_below = 7,
+	.freq_out_offs = GF_REG_FREQ_OUT_GPU,
+	.shader_present_offs = GF_REG_SHADER_PRESENT,
+	.gpu_tbl_offs = GF_REG_OPP_TABLE_GPU,
+	.stk_tbl_offs = GF_REG_OPP_TABLE_STK,
+	.has_ghpm = true,
 	.init = mtk_mfg_mt8196_init,
 };
 
@@ -893,7 +953,7 @@ static int mtk_mfg_init_nvmem_provider(struct mtk_mfg *mfg)
 		return dev_err_probe(dev, PTR_ERR(nvdev), "Couldn't register nvmem provider\n");
 
 	cell.name = "shader-present";
-	cell.offset = GF_REG_SHADER_PRESENT;
+	cell.offset = mfg->variant->shader_present_offs;
 	cell.bytes = 4;
 	cell.np = of_get_child_by_name(dev->of_node, cell.name);
 
@@ -930,27 +990,31 @@ static int mtk_mfg_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(mfg->gpr),
 				     "Couldn't retrieve GPR MMIO registers\n");
 
-	mfg->rpc = devm_platform_ioremap_resource(pdev, 1);
-	if (IS_ERR(mfg->rpc))
-		return dev_err_probe(dev, PTR_ERR(mfg->rpc),
-				     "Couldn't retrieve RPC MMIO registers\n");
+	if (mfg->variant->has_ghpm) {
+		mfg->rpc = devm_platform_ioremap_resource(pdev, 1);
+		if (IS_ERR(mfg->rpc))
+			return dev_err_probe(dev, PTR_ERR(mfg->rpc),
+					     "Couldn't retrieve RPC MMIO registers\n");
 
-	mfg->clk_eb = devm_clk_get(dev, "eb");
-	if (IS_ERR(mfg->clk_eb))
-		return dev_err_probe(dev, PTR_ERR(mfg->clk_eb),
-				     "Couldn't get 'eb' clock\n");
+		mfg->clk_eb = devm_clk_get(dev, "eb");
+		if (IS_ERR(mfg->clk_eb))
+			return dev_err_probe(dev, PTR_ERR(mfg->clk_eb),
+					     "Couldn't get 'eb' clock\n");
+	}
 
-	mfg->gpu_clks = devm_kcalloc(dev, data->num_clks, sizeof(*mfg->gpu_clks),
-				     GFP_KERNEL);
-	if (!mfg->gpu_clks)
-		return -ENOMEM;
+	if (data->num_clks) {
+		mfg->gpu_clks = devm_kcalloc(dev, data->num_clks, sizeof(*mfg->gpu_clks),
+					     GFP_KERNEL);
+		if (!mfg->gpu_clks)
+			return -ENOMEM;
 
-	for (i = 0; i < data->num_clks; i++)
-		mfg->gpu_clks[i].id = data->clk_names[i];
+		for (i = 0; i < data->num_clks; i++)
+			mfg->gpu_clks[i].id = data->clk_names[i];
 
-	ret = devm_clk_bulk_get(dev, data->num_clks, mfg->gpu_clks);
-	if (ret)
-		return dev_err_probe(dev, ret, "Couldn't get GPU clocks\n");
+		ret = devm_clk_bulk_get(dev, data->num_clks, mfg->gpu_clks);
+		if (ret)
+			return dev_err_probe(dev, ret, "Couldn't get GPU clocks\n");
+	}
 
 	mfg->gpu_regs = devm_kcalloc(dev, data->num_regulators,
 				     sizeof(*mfg->gpu_regs), GFP_KERNEL);
@@ -1046,6 +1110,7 @@ err_remove_genpd:
 }
 
 static const struct of_device_id mtk_mfg_of_match[] = {
+	{ .compatible = "mediatek,mt6858-gpufreq", .data = &mtk_mfg_mt6858_variant },
 	{ .compatible = "mediatek,mt8196-gpufreq", .data = &mtk_mfg_mt8196_variant },
 	{}
 };
@@ -1055,7 +1120,7 @@ static void mtk_mfg_remove(struct platform_device *pdev)
 {
 	struct mtk_mfg *mfg = dev_get_drvdata(&pdev->dev);
 
-	if (mtk_mfg_is_powered_on(mfg))
+	if (mfg->variant->has_ghpm && mtk_mfg_is_powered_on(mfg))
 		mtk_mfg_power_off(&mfg->pd);
 
 	of_genpd_del_provider(pdev->dev.of_node);
