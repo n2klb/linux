@@ -21,9 +21,12 @@ properties:
   compatible:
     oneOf:
       - enum:
+          - mediatek,mt6858-disp-dsc
           - mediatek,mt8195-disp-dsc
       - items:
-          - const: mediatek,mt8188-disp-dsc
+          - enum:
+              - mediatek,mt8188-disp-dsc
+              - mediatek,mt8196-disp-dsc
           - const: mediatek,mt8195-disp-dsc
 
   reg:
@@ -40,6 +43,9 @@ properties:
     description: A phandle and PM domain specifier as defined by bindings of
       the power controller specified by phandle. See
       Documentation/devicetree/bindings/power/power-domain.yaml for details.
+
+  trigger-sources:
+    maxItems: 1
 
   mediatek,gce-client-reg:
     description:

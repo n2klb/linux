@@ -10,8 +10,6 @@
 #include "mtk_ddp_comp.h"
 
 #define MAX_CONNECTOR	2
-#define DDP_COMPONENT_DRM_OVL_ADAPTOR (DDP_COMPONENT_ID_MAX + 1)
-#define DDP_COMPONENT_DRM_ID_MAX (DDP_COMPONENT_DRM_OVL_ADAPTOR + 1)
 
 enum mtk_crtc_path {
 	CRTC_MAIN,
@@ -30,16 +28,25 @@ struct regmap;
 
 struct mtk_drm_route {
 	const unsigned int crtc_id;
-	const unsigned int route_ddp;
+	const enum mtk_ddp_comp_type route_ddp_type;
+	const u8 route_ddp_inst_id;
+};
+
+struct mtk_drm_comp_definition {
+	enum mtk_ddp_comp_type type;
+	u8 inst_id;
+};
+
+struct mtk_drm_path_definition {
+	const struct mtk_drm_comp_definition *comp;
+	struct device_node *input_controller;
+	u8 len;
+	u8 order;
 };
 
 struct mtk_mmsys_driver_data {
-	const unsigned int *main_path;
-	unsigned int main_len;
-	const unsigned int *ext_path;
-	unsigned int ext_len;
-	const unsigned int *third_path;
-	unsigned int third_len;
+	struct mtk_drm_path_definition *output_paths;
+	u8 num_output_paths;
 	const struct mtk_drm_route *conn_routes;
 	unsigned int num_conn_routes;
 
@@ -60,24 +67,31 @@ struct mtk_drm_private {
 	struct device_node *mutex_node;
 	struct device *mutex_dev;
 	struct device *mmsys_dev;
-	struct device_node *comp_node[DDP_COMPONENT_DRM_ID_MAX];
-	struct mtk_ddp_comp ddp_comp[DDP_COMPONENT_DRM_ID_MAX];
+	struct mtk_drm_comp_list hlist;
 	struct mtk_mmsys_driver_data *data;
 	struct drm_atomic_commit *suspend_state;
 	unsigned int mbox_index;
 	struct mtk_drm_private **all_drm_private;
 };
 
+extern struct platform_driver mtk_direct_link_driver;
 extern struct platform_driver mtk_disp_aal_driver;
+extern struct platform_driver mtk_disp_blender_driver;
 extern struct platform_driver mtk_disp_ccorr_driver;
 extern struct platform_driver mtk_disp_color_driver;
+extern struct platform_driver mtk_disp_dsc_driver;
+extern struct platform_driver mtk_disp_exdma_driver;
 extern struct platform_driver mtk_disp_gamma_driver;
 extern struct platform_driver mtk_disp_merge_driver;
+extern struct platform_driver mtk_disp_outproc_driver;
 extern struct platform_driver mtk_disp_ovl_adaptor_driver;
 extern struct platform_driver mtk_disp_ovl_driver;
 extern struct platform_driver mtk_disp_rdma_driver;
+extern struct platform_driver mtk_disp_tdshp_driver;
+extern struct platform_driver mtk_disp_wdma_driver;
 extern struct platform_driver mtk_dpi_driver;
 extern struct platform_driver mtk_dsi_driver;
+extern struct platform_driver mtk_dvo_driver;
 extern struct platform_driver mtk_ethdr_driver;
 extern struct platform_driver mtk_mdp_rdma_driver;
 extern struct platform_driver mtk_padding_driver;

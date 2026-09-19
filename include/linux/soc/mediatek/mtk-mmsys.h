@@ -84,13 +84,49 @@ enum mtk_ddp_comp_id {
 	DDP_COMPONENT_ID_MAX,
 };
 
-void mtk_mmsys_ddp_connect(struct device *dev,
-			   enum mtk_ddp_comp_id cur,
-			   enum mtk_ddp_comp_id next);
+enum mtk_ddp_comp_type {
+	/* DISP Components */
+	MTK_DISP_AAL,
+	MTK_DISP_BLS,
+	MTK_DISP_BLENDER,
+	MTK_DISP_CCORR,
+	MTK_DISP_COLOR,
+	MTK_DISP_DIRECT_LINK_OUT,
+	MTK_DISP_DIRECT_LINK_IN,
+	MTK_DISP_DITHER,
+	MTK_DISP_DSC,
+	MTK_DISP_ETHDR_MIXER,
+	MTK_DISP_EXDMA,
+	MTK_DISP_GAMMA,
+	MTK_DISP_MERGE,
+	MTK_DISP_MUTEX,
+	MTK_DISP_OD,
+	MTK_DISP_OUTPROC,
+	MTK_DISP_OVL,
+	MTK_DISP_OVL_2L,
+	MTK_DISP_OVL_ADAPTOR,
+	MTK_DISP_PADDING,
+	MTK_DISP_POSTMASK,
+	MTK_DISP_PWM,
+	MTK_DISP_RDMA,
+	MTK_DISP_RSZ,
+	MTK_DISP_TDSHP,
+	MTK_DISP_UFOE,
+	MTK_DISP_WDMA,
 
-void mtk_mmsys_ddp_disconnect(struct device *dev,
-			      enum mtk_ddp_comp_id cur,
-			      enum mtk_ddp_comp_id next);
+	/* MDP Components */
+	MTK_DISP_MDP_RDMA,
+
+	/* Keep Display outputs at the end for readability */
+	MTK_DISP_DPI,
+	MTK_DISP_DP_INTF,
+	MTK_DISP_DSI,
+	MTK_DISP_DVO,
+
+	MTK_DDP_COMP_TYPE_MAX
+};
+
+#define MTK_DISP_DIRECT_LINK MTK_DISP_DIRECT_LINK_IN
 
 void mtk_mmsys_ddp_dpi_fmt_config(struct device *dev, u32 val);
 
@@ -99,6 +135,14 @@ void mtk_mmsys_merge_async_config(struct device *dev, int idx, int width,
 
 void mtk_mmsys_hdr_config(struct device *dev, int be_width, int be_height,
 			  struct cmdq_pkt *cmdq_pkt);
+
+void mtk_mmsys_hw_connect(struct device *dev,
+			  enum mtk_ddp_comp_type src_type, u8 src_hw_inst_id,
+			  enum mtk_ddp_comp_type dst_type, u8 dst_hw_inst_id);
+
+void mtk_mmsys_hw_disconnect(struct device *dev,
+			     enum mtk_ddp_comp_type src_type, u8 src_hw_inst_id,
+			     enum mtk_ddp_comp_type dst_type, u8 dst_hw_inst_id);
 
 void mtk_mmsys_mixer_in_config(struct device *dev, int idx, bool alpha_sel, u16 alpha,
 			       u8 mode, u32 biwidth, struct cmdq_pkt *cmdq_pkt);

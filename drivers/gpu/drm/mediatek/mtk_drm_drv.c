@@ -2,6 +2,10 @@
 /*
  * Copyright (c) 2015 MediaTek Inc.
  * Author: YT SHEN <yt.shen@mediatek.com>
+ *
+ * Major rework
+ * Copyright (c) 2026 Collabora Ltd.
+ *                    AngeloGioacchino Del Regno <angelogioacchino.delregno@collabora.com>
  */
 
 #include <linux/aperture.h>
@@ -31,6 +35,7 @@
 #include "mtk_ddp_comp.h"
 #include "mtk_disp_drv.h"
 #include "mtk_drm_drv.h"
+#include "mtk_drm_legacy.h"
 
 #define DRIVER_NAME "mediatek"
 #define DRIVER_DESC "Mediatek SoC DRM"
@@ -59,239 +64,54 @@ static const struct drm_mode_config_funcs mtk_drm_mode_config_funcs = {
 	.atomic_commit = drm_atomic_helper_commit,
 };
 
-static const unsigned int mt2701_mtk_ddp_main[] = {
-	DDP_COMPONENT_OVL0,
-	DDP_COMPONENT_RDMA0,
-	DDP_COMPONENT_COLOR0,
-	DDP_COMPONENT_BLS,
-	DDP_COMPONENT_DSI0,
-};
-
-static const unsigned int mt2701_mtk_ddp_ext[] = {
-	DDP_COMPONENT_RDMA1,
-	DDP_COMPONENT_DPI0,
-};
-
-static const unsigned int mt7623_mtk_ddp_main[] = {
-	DDP_COMPONENT_OVL0,
-	DDP_COMPONENT_RDMA0,
-	DDP_COMPONENT_COLOR0,
-	DDP_COMPONENT_BLS,
-	DDP_COMPONENT_DPI0,
-};
-
-static const unsigned int mt7623_mtk_ddp_ext[] = {
-	DDP_COMPONENT_RDMA1,
-	DDP_COMPONENT_DSI0,
-};
-
-static const unsigned int mt2712_mtk_ddp_main[] = {
-	DDP_COMPONENT_OVL0,
-	DDP_COMPONENT_COLOR0,
-	DDP_COMPONENT_AAL0,
-	DDP_COMPONENT_OD0,
-	DDP_COMPONENT_RDMA0,
-	DDP_COMPONENT_DPI0,
-	DDP_COMPONENT_PWM0,
-};
-
-static const unsigned int mt2712_mtk_ddp_ext[] = {
-	DDP_COMPONENT_OVL1,
-	DDP_COMPONENT_COLOR1,
-	DDP_COMPONENT_AAL1,
-	DDP_COMPONENT_OD1,
-	DDP_COMPONENT_RDMA1,
-	DDP_COMPONENT_DPI1,
-	DDP_COMPONENT_PWM1,
-};
-
-static const unsigned int mt2712_mtk_ddp_third[] = {
-	DDP_COMPONENT_RDMA2,
-	DDP_COMPONENT_DSI3,
-	DDP_COMPONENT_PWM2,
-};
-
-static unsigned int mt8167_mtk_ddp_main[] = {
-	DDP_COMPONENT_OVL0,
-	DDP_COMPONENT_COLOR0,
-	DDP_COMPONENT_CCORR,
-	DDP_COMPONENT_AAL0,
-	DDP_COMPONENT_GAMMA,
-	DDP_COMPONENT_DITHER0,
-	DDP_COMPONENT_RDMA0,
-	DDP_COMPONENT_DSI0,
-};
-
-static const unsigned int mt8173_mtk_ddp_main[] = {
-	DDP_COMPONENT_OVL0,
-	DDP_COMPONENT_COLOR0,
-	DDP_COMPONENT_AAL0,
-	DDP_COMPONENT_OD0,
-	DDP_COMPONENT_RDMA0,
-	DDP_COMPONENT_UFOE,
-	DDP_COMPONENT_DSI0,
-	DDP_COMPONENT_PWM0,
-};
-
-static const unsigned int mt8173_mtk_ddp_ext[] = {
-	DDP_COMPONENT_OVL1,
-	DDP_COMPONENT_COLOR1,
-	DDP_COMPONENT_GAMMA,
-	DDP_COMPONENT_RDMA1,
-	DDP_COMPONENT_DPI0,
-};
-
-static const unsigned int mt8183_mtk_ddp_main[] = {
-	DDP_COMPONENT_OVL0,
-	DDP_COMPONENT_OVL_2L0,
-	DDP_COMPONENT_RDMA0,
-	DDP_COMPONENT_COLOR0,
-	DDP_COMPONENT_CCORR,
-	DDP_COMPONENT_AAL0,
-	DDP_COMPONENT_GAMMA,
-	DDP_COMPONENT_DITHER0,
-	DDP_COMPONENT_DSI0,
-};
-
-static const unsigned int mt8183_mtk_ddp_ext[] = {
-	DDP_COMPONENT_OVL_2L1,
-	DDP_COMPONENT_RDMA1,
-	DDP_COMPONENT_DPI0,
-};
-
-static const unsigned int mt8186_mtk_ddp_main[] = {
-	DDP_COMPONENT_OVL0,
-	DDP_COMPONENT_RDMA0,
-	DDP_COMPONENT_COLOR0,
-	DDP_COMPONENT_CCORR,
-	DDP_COMPONENT_AAL0,
-	DDP_COMPONENT_GAMMA,
-	DDP_COMPONENT_POSTMASK0,
-	DDP_COMPONENT_DITHER0,
-	DDP_COMPONENT_DSI0,
-};
-
-static const unsigned int mt8186_mtk_ddp_ext[] = {
-	DDP_COMPONENT_OVL_2L0,
-	DDP_COMPONENT_RDMA1,
-	DDP_COMPONENT_DPI0,
-};
-
-static const unsigned int mt8188_mtk_ddp_main[] = {
-	DDP_COMPONENT_OVL0,
-	DDP_COMPONENT_RDMA0,
-	DDP_COMPONENT_COLOR0,
-	DDP_COMPONENT_CCORR,
-	DDP_COMPONENT_AAL0,
-	DDP_COMPONENT_GAMMA,
-	DDP_COMPONENT_POSTMASK0,
-	DDP_COMPONENT_DITHER0,
-};
-
-static const struct mtk_drm_route mt8188_mtk_ddp_main_routes[] = {
-	{0, DDP_COMPONENT_DP_INTF0},
-	{0, DDP_COMPONENT_DSI0},
-};
-
-static const unsigned int mt8192_mtk_ddp_main[] = {
-	DDP_COMPONENT_OVL0,
-	DDP_COMPONENT_OVL_2L0,
-	DDP_COMPONENT_RDMA0,
-	DDP_COMPONENT_COLOR0,
-	DDP_COMPONENT_CCORR,
-	DDP_COMPONENT_AAL0,
-	DDP_COMPONENT_GAMMA,
-	DDP_COMPONENT_POSTMASK0,
-	DDP_COMPONENT_DITHER0,
-	DDP_COMPONENT_DSI0,
-};
-
-static const unsigned int mt8192_mtk_ddp_ext[] = {
-	DDP_COMPONENT_OVL_2L2,
-	DDP_COMPONENT_RDMA4,
-	DDP_COMPONENT_DPI0,
-};
-
-static const unsigned int mt8195_mtk_ddp_main[] = {
-	DDP_COMPONENT_OVL0,
-	DDP_COMPONENT_RDMA0,
-	DDP_COMPONENT_COLOR0,
-	DDP_COMPONENT_CCORR,
-	DDP_COMPONENT_AAL0,
-	DDP_COMPONENT_GAMMA,
-	DDP_COMPONENT_DITHER0,
-	DDP_COMPONENT_DSC0,
-	DDP_COMPONENT_MERGE0,
-	DDP_COMPONENT_DP_INTF0,
-};
-
-static const unsigned int mt8195_mtk_ddp_ext[] = {
-	DDP_COMPONENT_DRM_OVL_ADAPTOR,
-	DDP_COMPONENT_MERGE5,
-	DDP_COMPONENT_DP_INTF1,
-};
-
 static const struct mtk_mmsys_driver_data mt2701_mmsys_driver_data = {
-	.main_path = mt2701_mtk_ddp_main,
-	.main_len = ARRAY_SIZE(mt2701_mtk_ddp_main),
-	.ext_path = mt2701_mtk_ddp_ext,
-	.ext_len = ARRAY_SIZE(mt2701_mtk_ddp_ext),
-	.shadow_register = true,
-	.mmsys_dev_num = 1,
-};
-
-static const struct mtk_mmsys_driver_data mt7623_mmsys_driver_data = {
-	.main_path = mt7623_mtk_ddp_main,
-	.main_len = ARRAY_SIZE(mt7623_mtk_ddp_main),
-	.ext_path = mt7623_mtk_ddp_ext,
-	.ext_len = ARRAY_SIZE(mt7623_mtk_ddp_ext),
+	.output_paths = mt2701_legacy_paths,
 	.shadow_register = true,
 	.mmsys_dev_num = 1,
 };
 
 static const struct mtk_mmsys_driver_data mt2712_mmsys_driver_data = {
-	.main_path = mt2712_mtk_ddp_main,
-	.main_len = ARRAY_SIZE(mt2712_mtk_ddp_main),
-	.ext_path = mt2712_mtk_ddp_ext,
-	.ext_len = ARRAY_SIZE(mt2712_mtk_ddp_ext),
-	.third_path = mt2712_mtk_ddp_third,
-	.third_len = ARRAY_SIZE(mt2712_mtk_ddp_third),
+	.output_paths = mt2712_legacy_paths,
+	.mmsys_dev_num = 1,
+};
+
+static const struct mtk_mmsys_driver_data mt7623_mmsys_driver_data = {
+	.output_paths = mt7623_legacy_paths,
+	.shadow_register = true,
+	.mmsys_dev_num = 1,
+};
+
+static const struct mtk_mmsys_driver_data mt6858_dispsys_driver_data = {
 	.mmsys_dev_num = 1,
 };
 
 static const struct mtk_mmsys_driver_data mt8167_mmsys_driver_data = {
-	.main_path = mt8167_mtk_ddp_main,
-	.main_len = ARRAY_SIZE(mt8167_mtk_ddp_main),
+	.output_paths = mt8167_legacy_paths,
 	.mmsys_dev_num = 1,
 };
 
 static const struct mtk_mmsys_driver_data mt8173_mmsys_driver_data = {
-	.main_path = mt8173_mtk_ddp_main,
-	.main_len = ARRAY_SIZE(mt8173_mtk_ddp_main),
-	.ext_path = mt8173_mtk_ddp_ext,
-	.ext_len = ARRAY_SIZE(mt8173_mtk_ddp_ext),
+	.output_paths = mt8173_legacy_paths,
 	.mmsys_dev_num = 1,
 };
 
 static const struct mtk_mmsys_driver_data mt8183_mmsys_driver_data = {
-	.main_path = mt8183_mtk_ddp_main,
-	.main_len = ARRAY_SIZE(mt8183_mtk_ddp_main),
-	.ext_path = mt8183_mtk_ddp_ext,
-	.ext_len = ARRAY_SIZE(mt8183_mtk_ddp_ext),
+	.output_paths = mt8183_legacy_paths,
 	.mmsys_dev_num = 1,
 };
 
 static const struct mtk_mmsys_driver_data mt8186_mmsys_driver_data = {
-	.main_path = mt8186_mtk_ddp_main,
-	.main_len = ARRAY_SIZE(mt8186_mtk_ddp_main),
-	.ext_path = mt8186_mtk_ddp_ext,
-	.ext_len = ARRAY_SIZE(mt8186_mtk_ddp_ext),
+	.output_paths = mt8186_legacy_paths,
 	.mmsys_dev_num = 1,
 };
 
+static const struct mtk_drm_route mt8188_mtk_ddp_main_routes[] = {
+	{ 0, MTK_DISP_DP_INTF, 0 },
+	{ 0, MTK_DISP_DSI, 0 },
+};
+
 static const struct mtk_mmsys_driver_data mt8188_vdosys0_driver_data = {
-	.main_path = mt8188_mtk_ddp_main,
-	.main_len = ARRAY_SIZE(mt8188_mtk_ddp_main),
+	.output_paths = mt8188_legacy_paths,
 	.conn_routes = mt8188_mtk_ddp_main_routes,
 	.num_conn_routes = ARRAY_SIZE(mt8188_mtk_ddp_main_routes),
 	.mmsys_dev_num = 2,
@@ -301,16 +121,12 @@ static const struct mtk_mmsys_driver_data mt8188_vdosys0_driver_data = {
 };
 
 static const struct mtk_mmsys_driver_data mt8192_mmsys_driver_data = {
-	.main_path = mt8192_mtk_ddp_main,
-	.main_len = ARRAY_SIZE(mt8192_mtk_ddp_main),
-	.ext_path = mt8192_mtk_ddp_ext,
-	.ext_len = ARRAY_SIZE(mt8192_mtk_ddp_ext),
+	.output_paths = mt8192_legacy_paths,
 	.mmsys_dev_num = 1,
 };
 
 static const struct mtk_mmsys_driver_data mt8195_vdosys0_driver_data = {
-	.main_path = mt8195_mtk_ddp_main,
-	.main_len = ARRAY_SIZE(mt8195_mtk_ddp_main),
+	.output_paths = mt8195_vdo0_legacy_paths,
 	.mmsys_dev_num = 2,
 	.max_width = 8191,
 	.min_width = 1,
@@ -318,8 +134,7 @@ static const struct mtk_mmsys_driver_data mt8195_vdosys0_driver_data = {
 };
 
 static const struct mtk_mmsys_driver_data mt8195_vdosys1_driver_data = {
-	.ext_path = mt8195_mtk_ddp_ext,
-	.ext_len = ARRAY_SIZE(mt8195_mtk_ddp_ext),
+	.output_paths = mt8195_vdo1_legacy_paths,
 	.mmsys_id = 1,
 	.mmsys_dev_num = 2,
 	.max_width = 8191,
@@ -338,6 +153,8 @@ static const struct of_device_id mtk_drm_of_ids[] = {
 	  .data = &mt7623_mmsys_driver_data},
 	{ .compatible = "mediatek,mt2712-mmsys",
 	  .data = &mt2712_mmsys_driver_data},
+	{ .compatible = "mediatek,mt6858-dispsys",
+	  .data = &mt6858_dispsys_driver_data},
 	{ .compatible = "mediatek,mt8167-mmsys",
 	  .data = &mt8167_mmsys_driver_data},
 	{ .compatible = "mediatek,mt8173-mmsys",
@@ -374,14 +191,24 @@ static int mtk_drm_match(struct device *dev, const void *data)
 static bool mtk_drm_get_all_drm_priv(struct device *dev)
 {
 	struct mtk_drm_private *drm_priv = dev_get_drvdata(dev);
-	struct mtk_drm_private *all_drm_priv[MAX_CRTC];
+	struct mtk_drm_private **all_drm_priv;
 	struct mtk_drm_private *temp_drm_priv;
 	struct device_node *phandle = dev->parent->of_node;
 	const struct of_device_id *of_id;
 	struct device_node *node;
 	struct device *drm_dev;
 	unsigned int cnt = 0;
+	bool all_privs_found;
 	int i, j;
+
+	dev_vdbg(dev, "Populating private data for all controllers on ID%u\n",
+		 drm_priv->data->mmsys_id);
+
+	/* Avoid variable length arrays and allocate an array of pointers to privs */
+	all_drm_priv = kmalloc_array(drm_priv->data->mmsys_dev_num,
+				     sizeof(struct mtk_drm_private *), GFP_KERNEL);
+	if (!all_drm_priv)
+		return -ENOMEM;
 
 	for_each_child_of_node(phandle->parent, node) {
 		struct platform_device *pdev;
@@ -404,59 +231,167 @@ static bool mtk_drm_get_all_drm_priv(struct device *dev)
 		if (!temp_drm_priv)
 			continue;
 
-		if (temp_drm_priv->data->main_len)
-			all_drm_priv[CRTC_MAIN] = temp_drm_priv;
-		else if (temp_drm_priv->data->ext_len)
-			all_drm_priv[CRTC_EXT] = temp_drm_priv;
-		else if (temp_drm_priv->data->third_len)
-			all_drm_priv[CRTC_THIRD] = temp_drm_priv;
+		/* Assign each probed controller's priv pointer to the array */
+		all_drm_priv[temp_drm_priv->data->mmsys_id] = temp_drm_priv;
 
 		if (temp_drm_priv->mtk_drm_bound)
 			cnt++;
 
-		if (cnt == MAX_CRTC) {
+		if (cnt == drm_priv->data->mmsys_dev_num) {
 			of_node_put(node);
 			break;
 		}
 	}
 
-	if (drm_priv->data->mmsys_dev_num == cnt) {
+	/*
+	 * If all controller priv pointers were found, initialize them all so
+	 * that every controller has pointers to the mtk_drm_private of all
+	 * the others.
+	 */
+	all_privs_found = drm_priv->data->mmsys_dev_num == cnt;
+	if (all_privs_found) {
 		for (i = 0; i < cnt; i++)
 			for (j = 0; j < cnt; j++)
 				all_drm_priv[j]->all_drm_private[i] = all_drm_priv[i];
-
-		return true;
 	}
+
+	/* Done using the temporary array of pointers: free it now. */
+	kfree(all_drm_priv);
+
+	return all_privs_found;
+}
+
+static bool mtk_drm_find_mmsys_comp(struct mtk_drm_private *private,
+				    enum mtk_ddp_comp_type type, u8 inst_id)
+{
+	const struct mtk_mmsys_driver_data *data = private->data;
+	int i, j;
+
+	for (i = 0; i < MAX_CRTC; i++) {
+		const struct mtk_drm_path_definition *output_path = &data->output_paths[i];
+
+		for (j = 0; j < output_path->len; j++) {
+			if (output_path->comp[j].type != type ||
+			    (inst_id != MTK_DISP_CONTROLLER_MAX_HW_COMP_INSTANCE &&
+			     output_path->comp[j].inst_id != inst_id))
+				continue;
+
+			return true;
+		}
+	}
+
+	if (data->num_conn_routes)
+		for (i = 0; i < data->num_conn_routes; i++)
+			if (data->conn_routes[i].route_ddp_type == type &&
+			    data->conn_routes[i].route_ddp_inst_id == inst_id)
+				return true;
 
 	return false;
 }
 
-static bool mtk_drm_find_mmsys_comp(struct mtk_drm_private *private, int comp_id)
+static bool mtk_drm_find_directlink_comp(struct mtk_drm_private *private)
 {
-	const struct mtk_mmsys_driver_data *drv_data = private->data;
-	int i;
+	if (mtk_drm_find_mmsys_comp(private, MTK_DISP_DIRECT_LINK_IN,
+				    MTK_DISP_CONTROLLER_MAX_HW_COMP_INSTANCE))
+		return true;
 
-	if (drv_data->main_path)
-		for (i = 0; i < drv_data->main_len; i++)
-			if (drv_data->main_path[i] == comp_id)
-				return true;
-
-	if (drv_data->ext_path)
-		for (i = 0; i < drv_data->ext_len; i++)
-			if (drv_data->ext_path[i] == comp_id)
-				return true;
-
-	if (drv_data->third_path)
-		for (i = 0; i < drv_data->third_len; i++)
-			if (drv_data->third_path[i] == comp_id)
-				return true;
-
-	if (drv_data->num_conn_routes)
-		for (i = 0; i < drv_data->num_conn_routes; i++)
-			if (drv_data->conn_routes[i].route_ddp == comp_id)
-				return true;
+	if (mtk_drm_find_mmsys_comp(private, MTK_DISP_DIRECT_LINK_OUT,
+				    MTK_DISP_CONTROLLER_MAX_HW_COMP_INSTANCE))
+		return true;
 
 	return false;
+}
+
+static struct mtk_drm_private *
+mtk_drm_find_matching_controller(struct mtk_drm_private **all_drm_private,
+				 struct device_node *target_node)
+{
+	for (int i = 0; i < all_drm_private[0]->data->mmsys_dev_num; i++) {
+		struct mtk_drm_private *priv = all_drm_private[i];
+		struct device_node *cur_mmsys_node = priv->mmsys_dev->of_node;
+
+		if (target_node == cur_mmsys_node)
+			return priv;
+	}
+
+	return NULL;
+}
+
+static void mtk_drm_set_path_orders(struct mtk_drm_private **all_drm_private)
+{
+	struct mtk_drm_private *private = all_drm_private[0];
+	unsigned short i, j;
+
+	/*
+	 * If the SoC has multiple display controllers w/DirectLink architecture
+	 * at this point all controllers have been registered and it is now safe
+	 * to iterate through and setup the outputs order so that the data path
+	 * follows the correct controllers sequence.
+	 *
+	 * At the end of this, the controllers are always ordered 0..N hence the
+	 * data, for each different display controller output (as each support
+	 * multiple different outputs as well) always travels through consecutive
+	 * controller indices, like CTRLRx_OUTPUTy -> ... -> CTRLRx+n_OUTPUTy,
+	 * where:
+	 *
+	 *  - The first one (0) is responsible for getting input frames from DRM
+	 *    and dispatching to image processing HW(s) and/or next controller;
+	 *  - The last one (N) is responsible for output to a physical display
+	 *
+	 * Note that one controller may also output to a different out-number of
+	 * its consecutive, so a display controller-I/O sequence like
+	 *
+	 *    CTRLR0_OUTPUT0 -> CTRLR1_OUTPUT3 -> CTRLR3_OUTPUT2 (-> DISPLAY)
+	 *          0        ->        1       ->       2
+	 *
+	 * should also considered as being valid since the hardware is capable of
+	 * doing so, but this is a corner case that is currently not handled to
+	 * simplify the implementation.
+	 */
+	for (i = 0; i < MAX_CRTC; i++) {
+		unsigned short max_iterations = private->data->mmsys_dev_num;
+		bool order_found;
+
+		do {
+			order_found = false;
+
+			for (j = 0; j < private->data->mmsys_dev_num; j++) {
+				const struct mtk_drm_path_definition *src_path;
+				struct mtk_drm_private *cur_priv, *src_priv;
+				struct mtk_drm_path_definition *cur_path;
+				unsigned int src_order;
+
+				cur_priv = all_drm_private[j];
+				if (!cur_priv)
+					continue;
+
+				cur_path = &cur_priv->data->output_paths[i];
+
+				if (!cur_path->len || !cur_path->input_controller)
+					continue;
+
+				src_priv = mtk_drm_find_matching_controller(all_drm_private,
+								cur_path->input_controller);
+				if (!src_priv)
+					continue;
+
+				/*
+				 * Paths are per-output: set order for the new output
+				 * by finding the order of the same output number of
+				 * the previous controller and incrementing it by one
+				 */
+				src_path = &src_priv->data->output_paths[i];
+				src_order = src_path->len ? src_path->order : 0;
+				if (cur_path->order <= src_order) {
+					cur_path->order = src_order + 1;
+
+					/* Order found: check next CRTC now! */
+					order_found = true;
+					break;
+				}
+			}
+		} while (!order_found && max_iterations--);
+	}
 }
 
 static int mtk_drm_kms_init(struct drm_device *drm)
@@ -465,6 +400,8 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 	struct mtk_drm_private *priv_n;
 	struct device *dma_dev = NULL;
 	struct drm_crtc *crtc;
+	int num_failed = 0;
+	int num_paths = 0;
 	int ret, i, j;
 
 	if (drm_firmware_drivers_only())
@@ -503,6 +440,9 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 	 */
 	drm_helper_move_panel_connectors_to_head(drm);
 
+	/* Set controllers order for multi-controller architecture */
+	mtk_drm_set_path_orders(private->all_drm_private);
+
 	/*
 	 * 1. We currently support two fixed data streams, each optional,
 	 *    and each statically assigned to a crtc:
@@ -525,31 +465,30 @@ static int mtk_drm_kms_init(struct drm_device *drm)
 			if (priv_n->data->min_height)
 				drm->mode_config.min_height = priv_n->data->min_height;
 
-			if (i == CRTC_MAIN && priv_n->data->main_len) {
-				ret = mtk_crtc_create(drm, priv_n->data->main_path,
-						      priv_n->data->main_len, j,
-						      priv_n->data->conn_routes,
-						      priv_n->data->num_conn_routes);
-				if (ret)
-					goto err_component_unbind;
-
+			if (!priv_n->data->output_paths[i].len)
 				continue;
-			} else if (i == CRTC_EXT && priv_n->data->ext_len) {
-				ret = mtk_crtc_create(drm, priv_n->data->ext_path,
-						      priv_n->data->ext_len, j, NULL, 0);
-				if (ret)
-					goto err_component_unbind;
 
-				continue;
-			} else if (i == CRTC_THIRD && priv_n->data->third_len) {
-				ret = mtk_crtc_create(drm, priv_n->data->third_path,
-						      priv_n->data->third_len, j, NULL, 0);
-				if (ret)
-					goto err_component_unbind;
+			num_paths++;
 
-				continue;
-			}
+			dev_vdbg(drm->dev,
+				 "[CTRL%d-CRTC%d] Path Len:%d, Controller Order:%u\n",
+				 j, i, priv_n->data->output_paths[i].len,
+				 priv_n->data->output_paths[i].order);
+
+			ret = mtk_crtc_create(drm, i, j,
+					      priv_n->data->conn_routes,
+					      priv_n->data->num_conn_routes);
+			if (ret == 0)
+				break;
+
+			num_failed++;
 		}
+	}
+
+	if (num_failed == num_paths) {
+		dev_err(drm->dev, "No valid Display Controller path! Going out.\n");
+		ret = -ENODEV;
+		goto err_component_unbind;
 	}
 
 	/* IGT will check if the cursor size is configured */
@@ -613,11 +552,6 @@ static const struct drm_driver mtk_drm_driver = {
 	.major = DRIVER_MAJOR,
 	.minor = DRIVER_MINOR,
 };
-
-static int compare_dev(struct device *dev, void *data)
-{
-	return dev == (struct device *)data;
-}
 
 static int mtk_drm_bind(struct device *dev)
 {
@@ -710,6 +644,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
 	  .data = (void *)MTK_DISP_AAL},
 	{ .compatible = "mediatek,mt8192-disp-aal",
 	  .data = (void *)MTK_DISP_AAL},
+	{ .compatible = "mediatek,mt8196-disp-blender",
+	  .data = (void *)MTK_DISP_BLENDER },
 	{ .compatible = "mediatek,mt8167-disp-ccorr",
 	  .data = (void *)MTK_DISP_CCORR },
 	{ .compatible = "mediatek,mt8183-disp-ccorr",
@@ -722,12 +658,18 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
 	  .data = (void *)MTK_DISP_COLOR },
 	{ .compatible = "mediatek,mt8173-disp-color",
 	  .data = (void *)MTK_DISP_COLOR },
+	{ .compatible = "mediatek,mt8196-disp-direct-link",
+	  .data = (void *)MTK_DISP_DIRECT_LINK },
 	{ .compatible = "mediatek,mt8167-disp-dither",
 	  .data = (void *)MTK_DISP_DITHER },
 	{ .compatible = "mediatek,mt8183-disp-dither",
 	  .data = (void *)MTK_DISP_DITHER },
+	{ .compatible = "mediatek,mt6858-disp-dsc",
+	  .data = (void *)MTK_DISP_DSC },
 	{ .compatible = "mediatek,mt8195-disp-dsc",
 	  .data = (void *)MTK_DISP_DSC },
+	{ .compatible = "mediatek,mt8196-disp-exdma",
+	  .data = (void *)MTK_DISP_EXDMA },
 	{ .compatible = "mediatek,mt8167-disp-gamma",
 	  .data = (void *)MTK_DISP_GAMMA, },
 	{ .compatible = "mediatek,mt8173-disp-gamma",
@@ -760,6 +702,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
 	  .data = (void *)MTK_DISP_MUTEX },
 	{ .compatible = "mediatek,mt8173-disp-od",
 	  .data = (void *)MTK_DISP_OD },
+	{ .compatible = "mediatek,mt8196-disp-outproc",
+	  .data = (void *)MTK_DISP_OUTPROC },
 	{ .compatible = "mediatek,mt2701-disp-ovl",
 	  .data = (void *)MTK_DISP_OVL },
 	{ .compatible = "mediatek,mt8167-disp-ovl",
@@ -794,38 +738,56 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
 	  .data = (void *)MTK_DISP_RDMA },
 	{ .compatible = "mediatek,mt8195-disp-rdma",
 	  .data = (void *)MTK_DISP_RDMA },
+	{ .compatible = "mediatek,mt8196-disp-rsz",
+	  .data = (void *)MTK_DISP_RSZ },
+	{ .compatible = "mediatek,mt8196-disp-tdshp",
+	  .data = (void *)MTK_DISP_TDSHP },
 	{ .compatible = "mediatek,mt8173-disp-ufoe",
 	  .data = (void *)MTK_DISP_UFOE },
+	{ .compatible = "mediatek,mt6893-disp-wdma",
+	  .data = (void *)MTK_DISP_WDMA },
 	{ .compatible = "mediatek,mt8173-disp-wdma",
 	  .data = (void *)MTK_DISP_WDMA },
+	{ .compatible = "mediatek,mt8196-ovl-direct-link",
+	  .data = (void *)MTK_DISP_DIRECT_LINK },
 	{ .compatible = "mediatek,mt2701-dpi",
-	  .data = (void *)MTK_DPI },
+	  .data = (void *)MTK_DISP_DPI },
 	{ .compatible = "mediatek,mt8167-dsi",
-	  .data = (void *)MTK_DSI },
+	  .data = (void *)MTK_DISP_DSI },
 	{ .compatible = "mediatek,mt8173-dpi",
-	  .data = (void *)MTK_DPI },
+	  .data = (void *)MTK_DISP_DPI },
 	{ .compatible = "mediatek,mt8183-dpi",
-	  .data = (void *)MTK_DPI },
+	  .data = (void *)MTK_DISP_DPI },
 	{ .compatible = "mediatek,mt8186-dpi",
-	  .data = (void *)MTK_DPI },
+	  .data = (void *)MTK_DISP_DPI },
 	{ .compatible = "mediatek,mt8188-dp-intf",
-	  .data = (void *)MTK_DP_INTF },
+	  .data = (void *)MTK_DISP_DP_INTF },
 	{ .compatible = "mediatek,mt8192-dpi",
-	  .data = (void *)MTK_DPI },
+	  .data = (void *)MTK_DISP_DPI },
 	{ .compatible = "mediatek,mt8195-dp-intf",
-	  .data = (void *)MTK_DP_INTF },
+	  .data = (void *)MTK_DISP_DP_INTF },
 	{ .compatible = "mediatek,mt8195-dpi",
-	  .data = (void *)MTK_DPI },
+	  .data = (void *)MTK_DISP_DPI },
 	{ .compatible = "mediatek,mt2701-dsi",
-	  .data = (void *)MTK_DSI },
+	  .data = (void *)MTK_DISP_DSI },
 	{ .compatible = "mediatek,mt8173-dsi",
-	  .data = (void *)MTK_DSI },
+	  .data = (void *)MTK_DISP_DSI },
 	{ .compatible = "mediatek,mt8183-dsi",
-	  .data = (void *)MTK_DSI },
+	  .data = (void *)MTK_DISP_DSI },
 	{ .compatible = "mediatek,mt8186-dsi",
-	  .data = (void *)MTK_DSI },
+	  .data = (void *)MTK_DISP_DSI },
 	{ .compatible = "mediatek,mt8188-dsi",
-	  .data = (void *)MTK_DSI },
+	  .data = (void *)MTK_DISP_DSI },
+	{ .compatible = "mediatek,mt8189-dsi",
+	  .data = (void *)MTK_DISP_DSI },
+	{ .compatible = "mediatek,mt8196-dsi",
+	  .data = (void *)MTK_DISP_DSI },
+	{ .compatible = "mediatek,mt8189-dp-dvo",
+	  .data = (void *)MTK_DISP_DVO },
+	{ .compatible = "mediatek,mt8189-edp-dvo",
+	  .data = (void *)MTK_DISP_DVO },
+	{ .compatible = "mediatek,mt8196-edp-dvo",
+	  .data = (void *)MTK_DISP_DVO },
 	{ }
 };
 
@@ -841,22 +803,136 @@ static int mtk_drm_of_get_ddp_comp_type(struct device_node *node, enum mtk_ddp_c
 	return 0;
 }
 
-static int mtk_drm_of_get_ddp_ep_cid(struct device_node *node,
-				     int output_port, enum mtk_crtc_path crtc_path,
-				     struct device_node **next, unsigned int *cid)
+/**
+ * mtk_drm_of_get_ep_external_controller() - Get parent controller if external
+ * @dev:         Device pointer to leading display controller
+ * @ep_dev_node: OF Node pointer to a display controller sub-component hardware
+ *               The caller is responsible for dropping the refcount.
+ *
+ * Return: External Display Controller (mmsys) device_node or NULL if the given
+ *         sub-component resides in the same Display Controller as *dev.
+ */
+static struct device_node
+*mtk_drm_of_get_ep_external_controller(struct device *dev,
+				       struct device_node *ep_dev_node)
 {
-	struct device_node *ep_dev_node, *ep_out;
+	struct device_node *leader_controller_node = dev->parent->of_node;
+	struct device_node *ep_parent_node;
+
+	ep_parent_node = of_get_parent(ep_dev_node);
+	if (ep_parent_node == leader_controller_node) {
+		of_node_put(ep_parent_node);
+		return NULL;
+	}
+
+	return ep_parent_node;
+}
+
+static int mtk_drm_of_get_first_input(struct device *dev, struct device_node *node,
+				      enum mtk_crtc_path crtc_endpoint,
+				      struct mtk_drm_comp_definition *comp_def)
+{
+	struct device_node *ep_dev_node, *ep_in;
+	enum mtk_ddp_comp_type comp_type;
+	int inst_id, ret;
+
+	ep_in = of_graph_get_endpoint_by_regs(node, 0, crtc_endpoint);
+	if (!ep_in)
+		return -ENOENT;
+
+	ep_dev_node = of_graph_get_port_parent(ep_in);
+	of_node_put(ep_in);
+	if (!ep_dev_node)
+		return -EINVAL;
+
+	/*
+	 * If the first input has no HW component specific driver go out with
+	 * -ENOENT: depending on the SoC (for arch gen2), this may be expected.
+	 */
+	ret = mtk_drm_of_get_ddp_comp_type(ep_dev_node, &comp_type);
+	of_node_put(ep_dev_node);
+	if (ret)
+		return -ENOENT;
+
+	inst_id = mtk_ddp_comp_get_id(ep_dev_node, ep_in, comp_type);
+	if (inst_id < 0)
+		return inst_id;
+
+	if (comp_type == MTK_DISP_DIRECT_LINK) {
+		struct device_node *remote_port = of_graph_get_remote_port(ep_in);
+
+		/* If there's a remote port this input is active, otherwise it's unused */
+		if (!remote_port)
+			return -ENOENT;
+		of_node_put(remote_port);
+
+		/* All even ports describe inputs, all odd ports describe outputs */
+		comp_type = (crtc_endpoint + 1) % 2 ?
+			    MTK_DISP_DIRECT_LINK_IN : MTK_DISP_DIRECT_LINK_OUT;
+
+		dev_dbg(dev, "Found First DirectLink %s with port %pOF and ID %u\n",
+			comp_type == MTK_DISP_DIRECT_LINK_OUT ? "OUT" : "IN",
+			ep_in, crtc_endpoint);
+	}
+
+	/* All ok! Pass the Component ID to the caller. */
+	comp_def->type = comp_type;
+	comp_def->inst_id = inst_id;
+
+	dev_dbg(dev, "Found first input component %pOF with ID=%u SubID=%u\n",
+		ep_dev_node, comp_def->type, comp_def->inst_id);
+
+	return 0;
+}
+
+/**
+ * mtk_drm_of_get_ddp_ep_cid - Parse HW component connection information
+ * @dev:          The mediatek-drm device
+ * @node:         The device node of the display controller component to parse
+ * @output_port:  The number of the port, corresponding to an output, to parse
+ * @crtc_endpoint:The number of the current endpoint corresponding to CRTC
+ * @next:         Pointer to a struct device_node, used to pass the next node,
+ *                corresponding to the next component's input, to the caller
+ * @comp_def:     Pointer to the last, uninitialized, entry of the temporary
+ *                structure array holding the Display Controller Path that is
+ *                being built.
+ * @controller_arch_v2: Check if DirectLink architecture or legacy VDO/MMSYS
+ *
+ * Return:
+ * * %0        - Component connection parsed fully: the currently parsed Display
+ *               Controller hardware component is interconnected with a next one
+ * * %-ENOENT  - The component's remote endpoint was not found
+ * * %-EINVAL  - Component information is not valid, hence not usable
+ * * %-ENODEV  - The identified component is a valid connection, but its DT node
+ *               is disabled, hence not usable
+ * * %-EREMOTE - The component is interconnected with a next one residing in a
+ *               different Display Controller, remote to the current one, hence
+ *               cannot be added to the path of the current controller
+ */
+static int mtk_drm_of_get_ddp_ep_cid(struct device *dev, struct device_node *node,
+				     int output_port, enum mtk_crtc_path crtc_endpoint,
+				     struct device_node **next,
+				     struct mtk_drm_comp_definition *comp_def,
+				     bool controller_arch_v2)
+{
+	struct device_node *ep_dev_node, *ep_out, *remote_ep;
 	enum mtk_ddp_comp_type comp_type;
 	int ret;
 
-	ep_out = of_graph_get_endpoint_by_regs(node, output_port, crtc_path);
+	ep_out = of_graph_get_endpoint_by_regs(node, output_port, crtc_endpoint);
 	if (!ep_out)
+		return -EINVAL;
+
+	remote_ep = of_graph_get_remote_endpoint(ep_out);
+	of_node_put(ep_out);
+	if (!remote_ep)
 		return -ENOENT;
 
-	ep_dev_node = of_graph_get_remote_port_parent(ep_out);
-	of_node_put(ep_out);
-	if (!ep_dev_node)
+	ep_dev_node = of_graph_get_port_parent(remote_ep);
+	if (!ep_dev_node) {
+		of_node_put(remote_ep);
 		return -EINVAL;
+	};
 
 	/*
 	 * Pass the next node pointer regardless of failures in the later code
@@ -865,34 +941,77 @@ static int mtk_drm_of_get_ddp_ep_cid(struct device_node *node,
 	 */
 	*next = ep_dev_node;
 
-	if (!of_device_is_available(ep_dev_node))
+	if (controller_arch_v2) {
+		struct device_node *rmt_ctrlr_node;
+
+		rmt_ctrlr_node = mtk_drm_of_get_ep_external_controller(dev, ep_dev_node);
+		if (rmt_ctrlr_node) {
+			/* The device is from a different mmsys (remote from this one) */
+			dev_dbg(dev, "Found connection to external mmsys %pOF\n",
+				rmt_ctrlr_node);
+
+			of_node_put(rmt_ctrlr_node);
+			of_node_put(remote_ep);
+			return -EREMOTE;
+		}
+	}
+
+	if (!of_device_is_available(ep_dev_node)) {
+		of_node_put(remote_ep);
 		return -ENODEV;
+	}
 
 	ret = mtk_drm_of_get_ddp_comp_type(ep_dev_node, &comp_type);
 	if (ret) {
+		of_node_put(remote_ep);
 		if (mtk_ovl_adaptor_is_comp_present(ep_dev_node)) {
-			*cid = (unsigned int)DDP_COMPONENT_DRM_OVL_ADAPTOR;
+			comp_def->type = MTK_DISP_OVL_ADAPTOR;
+			comp_def->inst_id = 0;
+
 			return 0;
 		}
 		return ret;
 	}
 
-	ret = mtk_ddp_comp_get_id(ep_dev_node, comp_type);
+	ret = mtk_ddp_comp_get_id(ep_dev_node, remote_ep, comp_type);
+	of_node_put(remote_ep);
 	if (ret < 0)
 		return ret;
 
+	if (comp_type == MTK_DISP_DIRECT_LINK) {
+		struct device_node *remote_port = of_graph_get_remote_port(ep_out);
+		u32 port_id;
+
+		of_property_read_u32(remote_port, "reg", &port_id);
+		of_node_put(remote_port);
+
+		/* All even ports describe inputs, all odd ports describe outputs */
+		comp_type = (port_id + 1) % 2 ? MTK_DISP_DIRECT_LINK_IN : MTK_DISP_DIRECT_LINK_OUT;
+
+		dev_dbg(dev, "Found DirectLink %s with port %pOF and ID %u\n",
+			comp_type == MTK_DISP_DIRECT_LINK_OUT ? "OUT" : "IN",
+			remote_port, port_id);
+	}
+
 	/* All ok! Pass the Component ID to the caller. */
-	*cid = (unsigned int)ret;
+	comp_def->type = comp_type;
+	comp_def->inst_id = ret;
+
+	dev_vdbg(dev, "Found component %pOF with Type:%u, HW Instance:%u\n",
+		 ep_dev_node, comp_def->type, comp_def->inst_id);
 
 	return 0;
 }
 
 /**
  * mtk_drm_of_ddp_path_build_one - Build a Display HW Pipeline for a CRTC Path
- * @dev:          The mediatek-drm device
- * @cpath:        CRTC Path relative to a VDO or MMSYS
- * @out_path:     Pointer to an array that will contain the new pipeline
- * @out_path_len: Number of entries in the pipeline array
+ * @dev:          The mediatek-drm device, corresponding to leading controller
+ *                instance of the current display HW pipeline
+ * @node:         The device node containing the first port/endpoint
+ * @cpath:        CRTC Path relative to a VDO or MMSYS, also used as
+ *                number of the initial endpoint for this CRTC path
+ * @out_path:     Pointer to the structure that will contain the new pipeline
+ * @controller_arch_v2: Check if DirectLink architecture or legacy VDO/MMSYS
  *
  * MediaTek SoCs can use different DDP hardware pipelines (or paths) depending
  * on the board-specific desired display configuration; this function walks
@@ -905,28 +1024,73 @@ static int mtk_drm_of_get_ddp_ep_cid(struct device_node *node,
  * * %-EINVAL - Display pipeline built but validation failed
  * * %-ENOMEM - Failure to allocate pipeline array to pass to the caller
  */
-static int mtk_drm_of_ddp_path_build_one(struct device *dev, enum mtk_crtc_path cpath,
-					 const unsigned int **out_path,
-					 unsigned int *out_path_len)
+static int mtk_drm_of_ddp_path_build_one(struct device *dev, struct device_node *node,
+					 enum mtk_crtc_path cpath,
+					 struct mtk_drm_path_definition *out_path,
+					 bool controller_arch_v2)
 {
-	struct device_node *next = NULL, *prev, *vdo = dev->parent->of_node;
-	unsigned int temp_path[DDP_COMPONENT_DRM_ID_MAX] = { 0 };
-	unsigned int *final_ddp_path;
-	unsigned short int idx = 0;
+	struct mtk_drm_comp_definition temp_path[MTK_DISP_CONTROLLER_MAX_COMP_PER_PATH];
+	struct device_node *next = NULL, *prev;
 	bool ovl_adaptor_comp_added = false;
+	unsigned short int idx = 0;
+	size_t final_comp_sz;
+	u8 temp_order;
 	int ret;
 
-	/* Get the first entry for the temp_path array */
-	ret = mtk_drm_of_get_ddp_ep_cid(vdo, 0, cpath, &next, &temp_path[idx]);
+	dev_vdbg(dev, "Building DDP Path for CRTC%d\n", cpath);
+
+	if (controller_arch_v2) {
+		/* Check if the starting input is already a usable component */
+		ret = mtk_drm_of_get_first_input(dev, node, cpath, &temp_path[idx]);
+		if (ret == 0) {
+			idx++;
+		} else if (ret != -ENOENT) {
+			dev_err(dev, "Cannot parse first input HW component: %d\n", ret);
+			return ret;
+		}
+	}
+
+	/*
+	 * Get the first remote for the temp_path array: for leader controllers
+	 * this will be an output, while for follower controllers this will be
+	 * an input from a DirectLink connection coming from either a leader or
+	 * a follower display controller.
+	 *
+	 * In case this is an input from any remote (leader/follower) controller
+	 * this will return EREMOTE and a different port (expressing a relay of
+	 * a crossbar) will be used to continue building the path.
+	 */
+	ret = mtk_drm_of_get_ddp_ep_cid(dev, node, 0, cpath, &next,
+					&temp_path[idx], controller_arch_v2);
+	if (ret == -EREMOTE) {
+		out_path->input_controller = mtk_drm_of_get_ep_external_controller(dev, next);
+
+		/*
+		 * Any follower controller gets the order set to 1 to avoid
+		 * iterating once again later when the actual full ordering
+		 * is calculated.
+		 */
+		temp_order = 1;
+		dev_dbg(dev, "Got external mmsys %pOF\n", out_path->input_controller);
+
+		ret = mtk_drm_of_get_ddp_ep_cid(dev, node, 2, cpath, &next,
+						&temp_path[idx], controller_arch_v2);
+	} else {
+		/* A leader controller gets, of course, its order set to 0 */
+		temp_order = 0;
+	}
+
 	if (ret) {
-		if (next && temp_path[idx] == DDP_COMPONENT_DRM_OVL_ADAPTOR) {
+		if (next && temp_path[idx].type == MTK_DISP_OVL_ADAPTOR) {
 			dev_dbg(dev, "Adding OVL Adaptor for %pOF\n", next);
 			ovl_adaptor_comp_added = true;
 		} else {
 			if (next)
 				dev_err(dev, "Invalid component %pOF\n", next);
 			else
-				dev_err(dev, "Cannot find first endpoint for path %d\n", cpath);
+				dev_err(dev,
+					"Cannot find first endpoint for path %d on %pOF\n",
+					cpath, node);
 
 			return ret;
 		}
@@ -939,9 +1103,30 @@ static int mtk_drm_of_ddp_path_build_one(struct device *dev, enum mtk_crtc_path 
 	 */
 	do {
 		prev = next;
-		ret = mtk_drm_of_get_ddp_ep_cid(next, 1, cpath, &next, &temp_path[idx]);
+		ret = mtk_drm_of_get_ddp_ep_cid(dev, next, 1, cpath, &next,
+						&temp_path[idx], controller_arch_v2);
+		if (ret == -EREMOTE)
+			ret = mtk_drm_of_get_ddp_ep_cid(dev, prev, 3, cpath, &next,
+							&temp_path[idx], controller_arch_v2);
 		of_node_put(prev);
+
+		/*
+		 * Avoid recursion for special DL_IN/DL_OUT connections:
+		 * 1. IN may be directly connected to OUT, expressing a RELAY
+		 *    internal connection, or
+		 * 2. A component's OUT may be directly connected to an
+		 *    output of DirectLink, expressing a (rare) fixed connection.
+		 */
+		for (int i = 1; i <= min(idx, 2); i++) {
+			if (temp_path[idx].type == temp_path[idx - i].type &&
+			    temp_path[idx].inst_id  == temp_path[idx - i].inst_id) {
+				ret = -ELOOP;
+				break;
+			}
+		}
+
 		if (ret) {
+			dev_vdbg(dev, "Invalid comp reached with result %d\n", ret);
 			of_node_put(next);
 			break;
 		}
@@ -953,13 +1138,13 @@ static int mtk_drm_of_ddp_path_build_one(struct device *dev, enum mtk_crtc_path 
 		 * to probe that component master driver of which only one instance
 		 * is needed and possible.
 		 */
-		if (temp_path[idx] == DDP_COMPONENT_DRM_OVL_ADAPTOR) {
+		if (temp_path[idx].type == MTK_DISP_OVL_ADAPTOR) {
 			if (!ovl_adaptor_comp_added)
 				ovl_adaptor_comp_added = true;
 			else
 				idx--;
 		}
-	} while (++idx < DDP_COMPONENT_DRM_ID_MAX);
+	} while (++idx < MTK_DISP_CONTROLLER_MAX_COMP_PER_PATH);
 
 	/*
 	 * The device component might not be enabled: in that case, don't
@@ -969,42 +1154,64 @@ static int mtk_drm_of_ddp_path_build_one(struct device *dev, enum mtk_crtc_path 
 		return ret;
 
 	/* If the last entry is not a final display output, the configuration is wrong */
-	switch (temp_path[idx - 1]) {
-	case DDP_COMPONENT_DP_INTF0:
-	case DDP_COMPONENT_DP_INTF1:
-	case DDP_COMPONENT_DPI0:
-	case DDP_COMPONENT_DPI1:
-	case DDP_COMPONENT_DSI0:
-	case DDP_COMPONENT_DSI1:
-	case DDP_COMPONENT_DSI2:
-	case DDP_COMPONENT_DSI3:
+	switch (temp_path[idx - 1].type) {
+	case MTK_DISP_DIRECT_LINK_IN:
+	case MTK_DISP_DIRECT_LINK_OUT:
+	case MTK_DISP_DP_INTF:
+	case MTK_DISP_DPI:
+	case MTK_DISP_DSI:
+	case MTK_DISP_DVO:
 		break;
 	default:
-		dev_err(dev, "Invalid display hw pipeline. Last component: %d (ret=%d)\n",
-			temp_path[idx - 1], ret);
+		dev_err(dev, "Invalid display hw pipeline. Last component: %u-%u (ret=%d)\n",
+			temp_path[idx - 1].type, temp_path[idx - 1].inst_id, ret);
 		return -EINVAL;
 	}
 
-	final_ddp_path = devm_kmemdup(dev, temp_path, idx * sizeof(temp_path[0]), GFP_KERNEL);
-	if (!final_ddp_path)
+	/* Pipeline built! */
+	out_path->len = idx;
+	final_comp_sz = out_path->len * sizeof(out_path->comp[0]);
+	out_path->comp = devm_kmemdup(dev, temp_path, final_comp_sz, GFP_KERNEL);
+	if (!out_path->comp)
 		return -ENOMEM;
+
+	/*
+	 * Anything that is not the primary controller gets order set to 1:
+	 * this is done to avoid iterating once again later when the actual
+	 * full controllers ordering is calculated.
+	 */
+	out_path->order = temp_order;
 
 	dev_dbg(dev, "Display HW Pipeline built with %d components.\n", idx);
 
-	/* Pipeline built! */
-	*out_path = final_ddp_path;
-	*out_path_len = idx;
-
 	return 0;
+}
+
+static bool mtk_drm_of_ddp_is_arch_v2(struct device_node *cur_mmsys_node)
+{
+	for_each_child_of_node_scoped(cur_mmsys_node, mmsys_child)
+		if (of_property_present(mmsys_child, "compatible"))
+			return true;
+
+	return false;
 }
 
 static int mtk_drm_of_ddp_path_build(struct device *dev, struct device_node *node,
 				     struct mtk_mmsys_driver_data *data)
 {
+	struct mtk_drm_path_definition *output_paths;
 	struct device_node *ep_node;
 	struct of_endpoint of_ep;
 	bool output_present[MAX_CRTC] = { false };
-	int ret;
+	u8 num_outputs_present = 0;
+	u8 num_outputs_skipped = 0;
+	bool controller_arch_v2;
+	int i, ret;
+
+	controller_arch_v2 = mtk_drm_of_ddp_is_arch_v2(dev->parent->of_node);
+
+	dev_dbg(dev, "Building Display Controller v%d Path starting from %pOF\n",
+		controller_arch_v2 ? 2 : 1, node);
 
 	for_each_endpoint_of_node(node, ep_node) {
 		ret = of_graph_parse_endpoint(ep_node, &of_ep);
@@ -1020,32 +1227,154 @@ static int mtk_drm_of_ddp_path_build(struct device *dev, struct device_node *nod
 		}
 
 		output_present[of_ep.id] = true;
+		num_outputs_present++;
 	}
+	if (ret == 0 && num_outputs_present == 0)
+		ret = dev_err_probe(dev, -ENXIO, "No display outputs found.\n");
 
 	if (ret) {
 		of_node_put(ep_node);
 		return ret;
 	}
 
-	if (output_present[CRTC_MAIN]) {
-		ret = mtk_drm_of_ddp_path_build_one(dev, CRTC_MAIN,
-						    &data->main_path, &data->main_len);
-		if (ret && ret != -ENODEV)
-			return ret;
+	/* This can be optimized after making CRTC numbers dynamic */
+	output_paths = devm_kcalloc(dev, MAX_CRTC, sizeof(*output_paths), GFP_KERNEL);
+	if (!output_paths)
+		return -ENOMEM;
+
+	for (i = 0; i < MAX_CRTC; i++) {
+		if (!output_present[i])
+			continue;
+
+		ret = mtk_drm_of_ddp_path_build_one(dev, node, i, &output_paths[i],
+						    controller_arch_v2);
+		/*
+		 * For -ENODEV, this could mean that the device is not yet registered,
+		 * but that may be just because of a probe deferral, so it is possible
+		 * to continue building the path as such failures are properly handled
+		 * later when enabling outputs.
+		 * For -ENOENT, it means that the devicetree declares a partial output
+		 * which is - of course - not okay, but failing entirely is a bit too
+		 * much: do a print to advertise invalid outputs, but fail probing
+		 * only if there is no valid output at all.
+		 */
+		if (ret && ret != -ENODEV) {
+			if (ret == -ENOENT) {
+				dev_dbg(dev, "Skipping invalid output for CRTC%u\n", i);
+				num_outputs_skipped++;
+			} else {
+				dev_err(dev, "Pipeline build failure on CRTC%u\n", i);
+				return ret;
+			}
+		}
 	}
 
-	if (output_present[CRTC_EXT]) {
-		ret = mtk_drm_of_ddp_path_build_one(dev, CRTC_EXT,
-						    &data->ext_path, &data->ext_len);
-		if (ret && ret != -ENODEV)
-			return ret;
+	if (num_outputs_skipped == num_outputs_present) {
+		dev_err(dev, "No valid display output found!\n");
+		return -ENOENT;
 	}
 
-	if (output_present[CRTC_THIRD]) {
-		ret = mtk_drm_of_ddp_path_build_one(dev, CRTC_THIRD,
-						    &data->third_path, &data->third_len);
-		if (ret && ret != -ENODEV)
+	data->output_paths = output_paths;
+
+	return 0;
+}
+
+static int mtk_drm_register_sibling(struct device *dev, struct mtk_drm_private *private,
+				    struct device_node *node, struct component_match **match)
+{
+	enum mtk_ddp_comp_type comp_type;
+	int comp_inst_id;
+	bool comp_found;
+	int ret;
+
+	ret = mtk_drm_of_get_ddp_comp_type(node, &comp_type);
+	if (ret)
+		return -EAGAIN;
+
+	ret = of_device_is_available(node);
+	if (!ret) {
+		dev_dbg(dev, "Skipping disabled component %pOF\n", node);
+		return -EAGAIN;
+	}
+
+	if (comp_type == MTK_DISP_MUTEX) {
+		int id;
+
+		id = of_alias_get_id(node, "mutex");
+		if (id < 0 || id == private->data->mmsys_id) {
+			private->mutex_node = of_node_get(node);
+			dev_dbg(dev, "get mutex for mmsys %d", private->data->mmsys_id);
+		}
+		return 0;
+	}
+
+	comp_inst_id = mtk_ddp_comp_get_id(node, NULL, comp_type);
+	if (comp_inst_id < 0) {
+		dev_info(dev, "Skipping unknown component %pOF\n", node);
+		return 0;
+	}
+
+	if (comp_type == MTK_DISP_DIRECT_LINK)
+		comp_found = mtk_drm_find_directlink_comp(private);
+	else
+		comp_found = mtk_drm_find_mmsys_comp(private,
+						     comp_type, comp_inst_id);
+
+	if (!comp_found)
+		return -EAGAIN;
+
+	/*
+	 * Currently only the AAL, CCORR, COLOR, GAMMA, MERGE, OVL, RDMA, DSI, and DPI
+	 * blocks have separate component platform drivers and initialize their own
+	 * DDP component structure. The others are initialized here.
+	 */
+	if (!mtk_ddp_comp_is_internal_comp(comp_type) &&
+	    !mtk_ovl_adaptor_is_comp_present(node)) {
+		dev_info(dev, "Adding component match for %pOF\n",
+			 node);
+		drm_of_component_match_add(dev, match, component_compare_of,
+					   node);
+	}
+
+	if (comp_type == MTK_DISP_DIRECT_LINK) {
+		for_each_of_graph_port(node, port) {
+			u32 port_id;
+
+			of_property_read_u32(port, "reg", &port_id);
+			if (port_id > 1)
+				continue;
+
+			/* Even ports are inputs, odd ports are outputs */
+			if (port_id % 2)
+				comp_type = MTK_DISP_DIRECT_LINK_OUT;
+
+			for_each_of_graph_port_endpoint(port, ep) {
+				struct of_endpoint of_ep;
+
+				ret = of_graph_parse_endpoint(ep, &of_ep);
+				if (ret)
+					break;
+
+				ret = mtk_ddp_comp_init(dev, node, &private->hlist,
+							private->data->mmsys_id,
+							comp_type, of_ep.id);
+				if (ret)
+					break;
+			}
+
+			if (ret) {
+				of_node_put(node);
+				return ret;
+			}
+		}
+	} else {
+		ret = mtk_ddp_comp_init(dev, node, &private->hlist,
+					private->data->mmsys_id,
+					comp_type, comp_inst_id);
+		if (ret) {
+			of_node_put(node);
 			return ret;
+		}
 	}
 
 	return 0;
@@ -1060,9 +1389,7 @@ static int mtk_drm_probe(struct platform_device *pdev)
 	struct mtk_mmsys_driver_data *mtk_drm_data;
 	struct device_node *node;
 	struct component_match *match = NULL;
-	struct platform_device *ovl_adaptor;
 	int ret;
-	int i;
 
 	private = devm_kzalloc(dev, sizeof(*private), GFP_KERNEL);
 	if (!private)
@@ -1082,8 +1409,15 @@ static int mtk_drm_probe(struct platform_device *pdev)
 	if (!mtk_drm_data)
 		return -EINVAL;
 
+	hash_init(private->hlist.ddp_list);
+
+	if (of_graph_is_present(phandle))
+		node = phandle;
+	else
+		node = of_find_node_by_name(phandle, "direct-link");
+
 	/* Try to build the display pipeline from devicetree graphs */
-	if (of_graph_is_present(phandle)) {
+	if (node) {
 		dev_dbg(dev, "Building display pipeline for MMSYS %u\n",
 			mtk_drm_data->mmsys_id);
 		private->data = devm_kmemdup(dev, mtk_drm_data,
@@ -1091,7 +1425,7 @@ static int mtk_drm_probe(struct platform_device *pdev)
 		if (!private->data)
 			return -ENOMEM;
 
-		ret = mtk_drm_of_ddp_path_build(dev, phandle, private->data);
+		ret = mtk_drm_of_ddp_path_build(dev, node, private->data);
 		if (ret)
 			return ret;
 	} else {
@@ -1106,91 +1440,42 @@ static int mtk_drm_probe(struct platform_device *pdev)
 	if (!private->all_drm_private)
 		return -ENOMEM;
 
-	/* Bringup ovl_adaptor */
-	if (mtk_drm_find_mmsys_comp(private, DDP_COMPONENT_DRM_OVL_ADAPTOR)) {
-		ovl_adaptor = platform_device_register_data(dev, "mediatek-disp-ovl-adaptor",
-							    PLATFORM_DEVID_AUTO,
-							    (void *)private->mmsys_dev,
-							    sizeof(*private->mmsys_dev));
-		private->ddp_comp[DDP_COMPONENT_DRM_OVL_ADAPTOR].dev = &ovl_adaptor->dev;
-		mtk_ddp_comp_init(dev, NULL, &private->ddp_comp[DDP_COMPONENT_DRM_OVL_ADAPTOR],
-				  DDP_COMPONENT_DRM_OVL_ADAPTOR);
-		component_match_add(dev, &match, compare_dev, &ovl_adaptor->dev);
+	/* Iterate over sibling DISP function blocks */
+	for_each_child_of_node(phandle, node) {
+		ret = mtk_drm_register_sibling(dev, private, node, &match);
+		if (ret && ret != -EAGAIN)
+			goto err_node;
 	}
 
-	/* Iterate over sibling DISP function blocks */
+	/*
+	 * After the previous loop, it is expected to have all of the display
+	 * controller sibling function blocks registered and added to the list.
+	 *
+	 * If nothing got registered this is a legacy devicetree with DISP
+	 * siblings located under the /soc node instead of being children of
+	 * the main Display Controller node.
+	 */
 	for_each_child_of_node(phandle->parent, node) {
-		enum mtk_ddp_comp_type comp_type;
-		int comp_id;
-
-		ret = mtk_drm_of_get_ddp_comp_type(node, &comp_type);
-		if (ret)
-			continue;
-
-		if (!of_device_is_available(node)) {
-			dev_dbg(dev, "Skipping disabled component %pOF\n",
-				node);
-			continue;
-		}
-
-		if (comp_type == MTK_DISP_MUTEX) {
-			int id;
-
-			id = of_alias_get_id(node, "mutex");
-			if (id < 0 || id == private->data->mmsys_id) {
-				private->mutex_node = of_node_get(node);
-				dev_dbg(dev, "get mutex for mmsys %d", private->data->mmsys_id);
-			}
-			continue;
-		}
-
-		comp_id = mtk_ddp_comp_get_id(node, comp_type);
-		if (comp_id < 0) {
-			dev_warn(dev, "Skipping unknown component %pOF\n",
-				 node);
-			continue;
-		}
-
-		if (!mtk_drm_find_mmsys_comp(private, comp_id))
-			continue;
-
-		private->comp_node[comp_id] = of_node_get(node);
-
-		/*
-		 * Currently only the AAL, CCORR, COLOR, GAMMA, MERGE, OVL, RDMA, DSI, and DPI
-		 * blocks have separate component platform drivers and initialize their own
-		 * DDP component structure. The others are initialized here.
-		 */
-		if (comp_type == MTK_DISP_AAL ||
-		    comp_type == MTK_DISP_CCORR ||
-		    comp_type == MTK_DISP_COLOR ||
-		    comp_type == MTK_DISP_GAMMA ||
-		    comp_type == MTK_DISP_MERGE ||
-		    comp_type == MTK_DISP_OVL ||
-		    comp_type == MTK_DISP_OVL_2L ||
-		    comp_type == MTK_DISP_OVL_ADAPTOR ||
-		    comp_type == MTK_DISP_RDMA ||
-		    comp_type == MTK_DP_INTF ||
-		    comp_type == MTK_DPI ||
-		    comp_type == MTK_DSI) {
-			dev_info(dev, "Adding component match for %pOF\n",
-				 node);
-			drm_of_component_match_add(dev, &match, component_compare_of,
-						   node);
-		}
-
-		ret = mtk_ddp_comp_init(dev, node, &private->ddp_comp[comp_id], comp_id);
-		if (ret) {
-			of_node_put(node);
+		ret = mtk_drm_register_sibling(dev, private, node, &match);
+		if (ret && ret != -EAGAIN)
 			goto err_node;
-		}
 	}
 
 	if (!private->mutex_node) {
 		dev_err(dev, "Failed to find disp-mutex node\n");
-		ret = -ENODEV;
-		goto err_node;
+		return -ENODEV;
 	}
+
+	/* If mtk-mutex is not a trigger source, this is an old devicetree */
+	if (!of_property_present(private->mutex_node, "#trigger-source-cells")) {
+		ret = mtk_drm_legacy_inject_mutex_trig_ids(&private->hlist, private->mutex_node);
+		if (ret)
+			return ret;
+	}
+
+	/* Bringup ovl_adaptor */
+	if (mtk_drm_find_mmsys_comp(private, MTK_DISP_OVL_ADAPTOR, 0))
+		mtk_drm_legacy_ovl_adaptor_probe(dev, private, &match);
 
 	pm_runtime_enable(dev);
 
@@ -1205,22 +1490,18 @@ static int mtk_drm_probe(struct platform_device *pdev)
 err_pm:
 	pm_runtime_disable(dev);
 err_node:
-	of_node_put(private->mutex_node);
-	for (i = 0; i < DDP_COMPONENT_DRM_ID_MAX; i++)
-		of_node_put(private->comp_node[i]);
+	if (private->mutex_node)
+		of_node_put(private->mutex_node);
 	return ret;
 }
 
 static void mtk_drm_remove(struct platform_device *pdev)
 {
 	struct mtk_drm_private *private = platform_get_drvdata(pdev);
-	int i;
 
 	component_master_del(&pdev->dev, &mtk_drm_ops);
 	pm_runtime_disable(&pdev->dev);
 	of_node_put(private->mutex_node);
-	for (i = 0; i < DDP_COMPONENT_DRM_ID_MAX; i++)
-		of_node_put(private->comp_node[i]);
 }
 
 static void mtk_drm_shutdown(struct platform_device *pdev)
@@ -1269,15 +1550,23 @@ static struct platform_driver mtk_drm_platform_driver = {
 };
 
 static struct platform_driver * const mtk_drm_drivers[] = {
+	&mtk_direct_link_driver,
 	&mtk_disp_aal_driver,
+	&mtk_disp_blender_driver,
 	&mtk_disp_ccorr_driver,
 	&mtk_disp_color_driver,
+	&mtk_disp_dsc_driver,
+	&mtk_disp_exdma_driver,
 	&mtk_disp_gamma_driver,
 	&mtk_disp_merge_driver,
+	&mtk_disp_outproc_driver,
 	&mtk_disp_ovl_adaptor_driver,
 	&mtk_disp_ovl_driver,
 	&mtk_disp_rdma_driver,
+	&mtk_disp_tdshp_driver,
+	&mtk_disp_wdma_driver,
 	&mtk_dpi_driver,
+	&mtk_dvo_driver,
 	&mtk_drm_platform_driver,
 	&mtk_dsi_driver,
 	&mtk_ethdr_driver,
@@ -1302,4 +1591,6 @@ module_exit(mtk_drm_exit);
 
 MODULE_AUTHOR("YT SHEN <yt.shen@mediatek.com>");
 MODULE_DESCRIPTION("Mediatek SoC DRM driver");
+MODULE_IMPORT_NS("MTK_MMSYS");
+MODULE_IMPORT_NS("MTK_MUTEX");
 MODULE_LICENSE("GPL v2");
