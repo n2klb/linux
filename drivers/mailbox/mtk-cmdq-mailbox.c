@@ -89,6 +89,7 @@ struct cmdq {
 	const struct gce_plat	*pdata;
 	struct cmdq_thread	*thread;
 	struct clk_bulk_data	*clocks;
+	struct clk		*timer_clk;
 	bool			suspended;
 };
 
@@ -213,6 +214,7 @@ static void cmdq_init(struct cmdq *cmdq)
 	int i;
 
 	WARN_ON(clk_bulk_enable(cmdq->pdata->gce_num, cmdq->clocks));
+	WARN_ON(clk_enable(cmdq->timer_clk));
 
 	cmdq_vm_init(cmdq);
 	cmdq_gctl_value_toggle(cmdq, true);
@@ -220,6 +222,7 @@ static void cmdq_init(struct cmdq *cmdq)
 	writel(CMDQ_THR_ACTIVE_SLOT_CYCLES, cmdq->base + CMDQ_THR_SLOT_CYCLES);
 	for (i = 0; i <= CMDQ_MAX_EVENT; i++)
 		writel(i, cmdq->base + CMDQ_SYNC_TOKEN_UPDATE);
+	clk_disable(cmdq->timer_clk);
 	clk_bulk_disable(cmdq->pdata->gce_num, cmdq->clocks);
 }
 
@@ -388,6 +391,10 @@ static int cmdq_runtime_resume(struct device *dev)
 	if (ret)
 		return ret;
 
+	ret = clk_enable(cmdq->timer_clk);
+	if (ret)
+		return ret;
+
 	cmdq_gctl_value_toggle(cmdq, true);
 	return 0;
 }
@@ -397,6 +404,7 @@ static int cmdq_runtime_suspend(struct device *dev)
 	struct cmdq *cmdq = dev_get_drvdata(dev);
 
 	cmdq_gctl_value_toggle(cmdq, false);
+	clk_disable(cmdq->timer_clk);
 	clk_bulk_disable(cmdq->pdata->gce_num, cmdq->clocks);
 	return 0;
 }
@@ -656,6 +664,11 @@ static int cmdq_get_clocks(struct device *dev, struct cmdq *cmdq)
 		return 0;
 	}
 
+	cmdq->timer_clk = devm_clk_get_optional(dev, "timer");
+	if (IS_ERR(cmdq->timer_clk))
+		return dev_err_probe(dev, PTR_ERR(cmdq->timer_clk),
+				     "failed to get timer clock\n");
+
 	/*
 	 * If there is more than one GCE, get the clocks for the others too,
 	 * as the clock of the main GCE must be enabled for additional IPs
@@ -747,6 +760,7 @@ static int cmdq_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, cmdq);
 
 	WARN_ON(clk_bulk_prepare(cmdq->pdata->gce_num, cmdq->clocks));
+	WARN_ON(clk_prepare(cmdq->timer_clk));
 
 	cmdq_init(cmdq);
 
@@ -792,6 +806,14 @@ static const struct gce_plat gce_plat_mt6779 = {
 	.shift = 3,
 	.control_by_sw = false,
 	.gce_num = 1
+};
+
+static const struct gce_plat gce_plat_mt6858 = {
+	.thread_nr = 32,
+	.shift = 3,
+	.mminfra_offset = SZ_1G,
+	.control_by_sw = true,
+	.gce_num = 2
 };
 
 static const struct gce_plat gce_plat_mt8173 = {
@@ -849,6 +871,7 @@ static const struct gce_plat gce_plat_mt8196 = {
 
 static const struct of_device_id cmdq_of_ids[] = {
 	{.compatible = "mediatek,mt6779-gce", .data = (void *)&gce_plat_mt6779},
+	{.compatible = "mediatek,mt6858-gce", .data = (void *)&gce_plat_mt6858},
 	{.compatible = "mediatek,mt8173-gce", .data = (void *)&gce_plat_mt8173},
 	{.compatible = "mediatek,mt8183-gce", .data = (void *)&gce_plat_mt8183},
 	{.compatible = "mediatek,mt8186-gce", .data = (void *)&gce_plat_mt8186},
