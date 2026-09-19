@@ -7,6 +7,7 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/phy/phy.h>
+#include <dt-bindings/reset/mediatek,mt6858-resets.h>
 #include "mt6858-pinfunc.h"
 
 / {
@@ -231,6 +232,26 @@
 		interrupts = <GIC_SPI 18 IRQ_TYPE_LEVEL_HIGH 0>;
 		cpus = <&cpu0>, <&cpu1>, <&cpu2>, <&cpu3>,
 		       <&cpu4>, <&cpu5>, <&cpu6>, <&cpu7>;
+	};
+
+	ufs_opp_table: opp-table-ufs {
+		compatible = "operating-points-v2";
+
+		opp-26000000 {
+			opp-hz = /bits/ 64 <26000000>, /* ufs */
+				 /bits/ 64 <0>, /* ufs_aes */
+				 /bits/ 64 <0>, /* ufs_ahb */
+				 /bits/ 64 <0>, /* ufs_tick */
+				 /bits/ 64 <0>, /* unipro_sysclk */
+				 /bits/ 64 <0>, /* ufs_tx_symbol */
+				 /bits/ 64 <0>, /* ufs_mem_sub */
+				 /bits/ 64 <0>, /* ufs_fde_sel */
+				 /bits/ 64 <0>, /* ufs_fde_sel_min_src */
+				 /bits/ 64 <0>, /* ufs_fde_sel_max_src */
+				 /bits/ 64 <0>, /* ufs_sel */
+				 /bits/ 64 <0>, /* ufs_sel_min_src */
+				 /bits/ 64 <0>; /* ufs_sel_max_src */
+		};
 	};
 
 	clk32k: oscillator-32k {
@@ -581,6 +602,66 @@
 			reg = <0x0 0x11286000 0x0 0x1000>;
 			clocks = <&pericfg_ao CLK_PERAO_I2C>;
 			#clock-cells = <1>;
+		};
+
+		ufsphy: ufs-phy@112a0000 {
+			compatible = "mediatek,mt6858-ufsphy", "mediatek,mt8183-ufsphy";
+			reg = <0x0 0x112a0000 0x0 0x10000>;
+			clocks = <&ufscfg_ao CLK_UFSAO_UNIPRO_SYS>,
+				 <&ufscfg_ao CLK_UFSAO_UNIPRO_SAP_CFG>;
+			clock-names = "unipro", "mp";
+			#phy-cells = <0>;
+			status = "disabled";
+		};
+
+		ufshci: ufshci@112b0000 {
+			compatible = "mediatek,mt6858-ufshci", "mediatek,mt8183-ufshci";
+			reg = <0x0 0x112b0000 0x0 0x2300>;
+			interrupts = <GIC_SPI 410 IRQ_TYPE_LEVEL_HIGH 0>;
+			phys = <&ufsphy>;
+
+			operating-points-v2 = <&ufs_opp_table>;
+
+			clocks = <&ufscfg_pdn CLK_UFSPDN_UFSHCI_UFS>,
+				 <&ufscfg_pdn CLK_UFSPDN_UFSHCI_AES>,
+				 <&ufscfg_pdn CLK_UFSPDN_UFSHCI_UFS_AHB>,
+				 <&ufscfg_pdn CLK_UFSPDN_UFS_26M>,
+				 <&ufscfg_ao CLK_UFSAO_UNIPRO_SYS>,
+				 <&ufscfg_ao CLK_UFSAO_UNIPRO_TX_SYM>,
+				 <&cksys CLK_TOP_MEM_SUB_UFS>,
+				 <&cksys CLK_TOP_AES_UFSFDE>,
+				 <&cksys CLK_TOP_UNIVPLL_D6>,
+				 <&cksys CLK_TOP_MAINPLL_D4>,
+				 <&cksys CLK_TOP_UFS>,
+				 <&clk26m>,
+				 <&cksys CLK_TOP_MSDCPLL_D2>;
+			clock-names = "ufs",
+				      "ufs_aes",
+				      "ufs_ahb",
+				      "ufs_tick",
+				      "unipro_sysclk",
+				      "ufs_tx_symbol",
+				      "ufs_mem_sub",
+				      "ufs_fde",
+				      "ufs_fde_min_src",
+				      "ufs_fde_max_src",
+				      "ufs_sel",
+				      "ufs_sel_min_src",
+				      "ufs_sel_max_src";
+
+			resets = <&ufscfg_pdn MT6858_UFSPDN_RST_UFS_UNIPRO>,
+				 <&ufscfg_pdn MT6858_UFSPDN_RST_UFS_CRYPTO>,
+				 <&ufscfg_pdn MT6858_UFSPDN_RST_UFSHCI>;
+#if 0
+			reset-names = "unipro", "crypto", "hci";
+#else
+			reset-names = "unipro_rst", "crypto_rst", "hci_rst";
+#endif
+
+			mediatek,ufs-disable-mcq;
+			mediatek,ufs-rtff-mtcmos;
+
+			status = "disabled";
 		};
 
 		ufscfg_ao: clock-controller@112b8000 {
