@@ -714,6 +714,45 @@
 			};
 		};
 
+		gpu: gpu@13000000 {
+			compatible = "mediatek,mt6858-mali", "arm,mali-valhall-csf";
+			reg = <0x0 0x13000000 0x0 0x480000>;
+			clocks = <&gpufreq 0>;
+			interrupts = <GIC_SPI 269 IRQ_TYPE_LEVEL_HIGH 0>,
+				     <GIC_SPI 270 IRQ_TYPE_LEVEL_HIGH 0>,
+				     <GIC_SPI 271 IRQ_TYPE_LEVEL_HIGH 0>;
+			interrupt-names = "gpu", "mmu", "job";
+			nvmem-cells = <&shader_present>;
+			nvmem-cell-names = "shader-present";
+			power-domains = <&gpufreq>;
+			#cooling-cells = <2>;
+
+			status = "disabled";
+		};
+
+		gpufreq: performance-controller@13c2fd00 {
+			compatible = "mediatek,mt6858-gpufreq";
+			reg = <0x0 0x13c2fd00 0x0 0x80>;
+			mboxes = <&gpueb_mbox 1>, <&gpueb_mbox 2>;
+			mbox-names = "gpufreq", "sleep";
+			#clock-cells = <1>;
+			#nvmem-cells = <0>;
+			#power-domain-cells = <0>;
+
+			status = "disabled";
+
+			shader_present: shader-present { };
+		};
+
+		gpueb_mbox: mailbox@13c2fd80 {
+			compatible = "mediatek,mt6858-gpueb-mbox";
+			reg = <0x0 0x13c2fd80 0x0 0x280>,
+			      <0x0 0x13c62000 0x0 0x7c>;
+			reg-names = "data", "ctl";
+			interrupts = <GIC_SPI 273 IRQ_TYPE_LEVEL_HIGH 0>;
+			#mbox-cells = <1>;
+		};
+
 		watchdog: watchdog@1c00a000 {
 			compatible = "mediatek,mt6858-wdt", "mediatek,mt6589-wdt",
 				     "syscon", "simple-mfd";
