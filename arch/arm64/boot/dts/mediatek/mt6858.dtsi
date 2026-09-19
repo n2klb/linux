@@ -15,6 +15,10 @@
 	#address-cells = <2>;
 	#size-cells = <2>;
 
+	aliases {
+		spmi0 = &spmi0;
+	};
+
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -725,6 +729,28 @@
 			compatible = "mediatek,mt6858-vlp-cksys";
 			reg = <0x0 0x1c012000 0x0 0x1000>;
 			#clock-cells = <1>;
+		};
+
+		spmi-arbiter@1c020000 {
+			compatible = "mediatek,mt6858-spmi", "mediatek,mt8196-spmi";
+			ranges = <0x0 0x0 0x1c020000 0x6900>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			spmi0: spmi@4000 {
+				reg = <0x4000 0x900>, <0x1000 0x100>;
+				reg-names = "pmif", "spmimst";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				interrupts-extended = <&pio 213 IRQ_TYPE_LEVEL_HIGH>;
+				interrupt-names = "rcs";
+				interrupt-controller;
+				#interrupt-cells = <3>;
+				clocks = <&clk32k>,
+					 <&clk32k>,
+					 <&vlp_cksys CLK_VLP_TOP_SPMI_M_MST>;
+				clock-names = "pmif_sys_ck", "pmif_tmr_ck", "spmimst_clk_mux";
+			};
 		};
 
 		timer@1c033000 {
