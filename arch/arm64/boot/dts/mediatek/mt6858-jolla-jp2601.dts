@@ -8,6 +8,8 @@
 #include <dt-bindings/input/linux-event-codes.h>
 
 #include "mt6858.dtsi"
+#include "mt6363.dtsi"
+#include "mt6369.dtsi"
 
 / {
 	model = "Jolla Phone (2026)";
@@ -73,6 +75,38 @@
 			wakeup-source;
 		};
 	};
+};
+
+&cpu0 {
+	cpu-supply = <&mt6363_vbuck6>;
+};
+
+&cpu1 {
+	cpu-supply = <&mt6363_vbuck6>;
+};
+
+&cpu2 {
+	cpu-supply = <&mt6363_vbuck6>;
+};
+
+&cpu3 {
+	cpu-supply = <&mt6363_vbuck6>;
+};
+
+&cpu4 {
+	cpu-supply = <&mt6319_vbuck1>;
+};
+
+&cpu5 {
+	cpu-supply = <&mt6319_vbuck1>;
+};
+
+&cpu6 {
+	cpu-supply = <&mt6319_vbuck1>;
+};
+
+&cpu7 {
+	cpu-supply = <&mt6319_vbuck1>;
 };
 
 &i2c0 {
@@ -157,6 +191,110 @@
 	/* 0x45: AW2023 LED controller */
 };
 
+&mt6363_vbuck1 {
+	regulator-always-on;
+};
+
+&mt6363_vbuck2 {
+	regulator-always-on;
+};
+
+&mt6363_vbuck3 {
+	regulator-always-on;
+};
+
+&mt6363_vbuck4 {
+	regulator-always-on;
+};
+
+&mt6363_vbuck5 {
+	regulator-always-on;
+};
+
+&mt6363_vbuck6 {
+	regulator-min-microvolt = <300000>;
+	regulator-max-microvolt = <1193750>;
+	regulator-always-on;
+};
+
+&mt6363_vbuck7 {
+	regulator-always-on;
+};
+
+&mt6363_vsram_digrf {
+	regulator-always-on;
+};
+
+&mt6363_vsram_modem {
+	regulator-always-on;
+};
+
+&mt6363_vsram_cpub {
+	regulator-always-on;
+};
+
+&mt6363_vsram_cpum {
+	regulator-always-on;
+};
+
+&mt6363_vsram_cpul {
+	regulator-always-on;
+};
+
+&mt6363_vsram_apu {
+	regulator-always-on;
+};
+
+&mt6363_vcn15 {
+	regulator-always-on;
+};
+
+&mt6363_vufs18 {
+	regulator-always-on;
+};
+
+&mt6363_vm18 {
+	regulator-always-on;
+};
+
+&mt6363_vufs12 {
+	regulator-always-on;
+};
+
+&mt6363_vrf12 {
+	regulator-always-on;
+};
+
+&mt6369_vbuck1 {
+	regulator-always-on;
+};
+
+&mt6369_vsram_core {
+	regulator-always-on;
+};
+
+&mt6369_vaux18 {
+	regulator-always-on;
+};
+
+&mt6369_vio28 {
+	regulator-always-on;
+};
+
+&mt6369_vmc {
+	regulator-min-microvolt = <1200000>;
+	regulator-max-microvolt = <3300000>;
+};
+
+&mt6369_vmch {
+	regulator-min-microvolt = <1200000>;
+	regulator-max-microvolt = <3300000>;
+};
+
+&mt6369_vaud28 {
+	regulator-always-on;
+};
+
 &pio {
 	i2c0_pins: i2c0-pins {
 		pins-bus {
@@ -236,6 +374,36 @@
 	};
 };
 
+&spmi0 {
+	pmic@6 {
+		compatible = "mediatek,mt6319-regulator", "mediatek,mt6315-regulator";
+		reg = <0x6 SPMI_USID>;
+
+		regulators {
+			mt6319_vbuck1: vbuck1 {
+				regulator-name = "mt6319-vbuck1";
+				regulator-min-microvolt = <300000>;
+				regulator-max-microvolt = <1193750>;
+				regulator-enable-ramp-delay = <256>;
+				regulator-allowed-modes = <0 1 2>;
+				regulator-always-on;
+			};
+
+			vbuck3 {
+				regulator-name = "mt6319-vbuck3";
+				regulator-enable-ramp-delay = <256>;
+				regulator-allowed-modes = <0 1 2>;
+			};
+
+			vbuck4 {
+				regulator-name = "mt6319-vbuck4";
+				regulator-enable-ramp-delay = <256>;
+				regulator-allowed-modes = <0 1 2>;
+			};
+		};
+	};
+};
+
 &u2phy {
 	status = "okay";
 };
@@ -247,6 +415,7 @@
 };
 
 &usb {
+	vusb33-supply = <&mt6369_vusb>;
 	maximum-speed = "high-speed";
 	dr_mode = "otg";
 	usb-role-switch;
