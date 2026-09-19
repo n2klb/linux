@@ -489,6 +489,21 @@
 			};
 		};
 
+		mmc1: mmc@11240000 {
+			compatible = "mediatek,mt6858-mmc", "mediatek,mt8189-mmc";
+			reg = <0x0 0x11240000 0x0 0x1000>,
+			      <0x0 0x11e90000 0x0 0x1000>;
+			interrupts = <GIC_SPI 406 IRQ_TYPE_LEVEL_HIGH 0>;
+			clocks = <&cksys CLK_TOP_MSDC30_1>,
+				 <&cksys CLK_TOP_MSDC_MACRO_1P>,
+				 <&pericfg_ao CLK_PERAO_MSDC1_H>,
+				 <&pericfg_ao CLK_PERAO_MSDC1>,
+				 <&pericfg_ao CLK_PERAO_MSDC1_MST_F>,
+				 <&pericfg_ao CLK_PERAO_MSDC1_SLV_H>;
+			clock-names = "source", "macro", "hclk", "source_cg", "axi_cg", "bus_clk";
+			status = "disabled";
+		};
+
 		i2c1: i2c@11280000 {
 			compatible = "mediatek,mt6858-i2c", "mediatek,mt8188-i2c";
 			reg = <0x0 0x11280000 0x0 0x1000>,
