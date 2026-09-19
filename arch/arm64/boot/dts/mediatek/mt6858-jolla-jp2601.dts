@@ -462,6 +462,18 @@
 	status = "okay";
 };
 
+&ufshci {
+	vcc-supply = <&mt6363_vemc>;
+	vccq-supply = <&mt6363_vufs12>;
+	vccq2-supply = <&mt6363_vufs18>;
+
+	status = "okay";
+};
+
+&ufsphy {
+	status = "okay";
+};
+
 &usb {
 	vusb33-supply = <&mt6369_vusb>;
 	maximum-speed = "high-speed";
