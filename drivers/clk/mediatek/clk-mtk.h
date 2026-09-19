@@ -260,6 +260,7 @@ struct mtk_clk_desc {
 	unsigned int mfg_clk_idx;
 
 	bool need_runtime_pm;
+	bool need_runtime_pm_clk;
 };
 
 int mtk_clk_pdev_probe(struct platform_device *pdev);
