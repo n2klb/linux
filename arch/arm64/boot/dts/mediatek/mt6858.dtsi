@@ -7,6 +7,7 @@
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/phy/phy.h>
+#include <dt-bindings/power/mediatek,mt6858-power.h>
 #include <dt-bindings/reset/mediatek,mt6858-resets.h>
 #include "mt6858-pinfunc.h"
 
@@ -497,6 +498,7 @@
 				 <&cksys CLK_TOP_USB_FRMCNT>;
 			clock-names = "sys_ck", "xhci_ck", "frmcnt_ck";
 			phys = <&u2port0 PHY_TYPE_USB2>;
+			power-domains = <&spm MT6858_POWER_DOMAIN_SSUSB>;
 			status = "disabled";
 
 			usb_host: usb@0 {
@@ -832,6 +834,147 @@
 			reg-names = "data", "ctl";
 			interrupts = <GIC_SPI 273 IRQ_TYPE_LEVEL_HIGH 0>;
 			#mbox-cells = <1>;
+		};
+
+		img_sub0: bus@1502f000 {
+			compatible = "simple-mfd";
+			reg = <0x0 0x1502f000 0x0 0x1000>;
+			#access-controller-cells = <0>;
+		};
+
+		cam_sub1: bus@1a00c000 {
+			compatible = "simple-mfd";
+			reg = <0x0 0x1a00c000 0x0 0x1000>;
+			#access-controller-cells = <0>;
+		};
+
+		cam_sub0: bus@1a00d000 {
+			compatible = "simple-mfd";
+			reg = <0x0 0x1a00d000 0x0 0x1000>;
+			#access-controller-cells = <0>;
+		};
+
+		ipe_sub0: bus@1b00e000 {
+			compatible = "simple-mfd";
+			reg = <0x0 0x1b00e000 0x0 0x1000>;
+			#access-controller-cells = <0>;
+		};
+
+		scpsys: syscon@1c001000 {
+			compatible = "mediatek,mt6858-scpsys", "syscon", "simple-mfd";
+			reg = <0x0 0x1c001000 0x0 0x1000>;
+
+			/* System Power Manager */
+			spm: power-controller {
+				compatible = "mediatek,mt6858-power-controller";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				#power-domain-cells = <1>;
+				access-controllers = <&infracfg_ao>, <&img_sub0>,
+						     <&cam_sub1>, <&cam_sub0>,
+						     <&ipe_sub0>, <&vlpcfg>;
+
+				power-domain@MT6858_POWER_DOMAIN_MD {
+					reg = <MT6858_POWER_DOMAIN_MD>;
+					#power-domain-cells = <0>;
+				};
+
+				power-domain@MT6858_POWER_DOMAIN_CONN {
+					reg = <MT6858_POWER_DOMAIN_CONN>;
+					#power-domain-cells = <0>;
+				};
+
+				power-domain@MT6858_POWER_DOMAIN_AUDIO {
+					reg = <MT6858_POWER_DOMAIN_AUDIO>;
+					#power-domain-cells = <0>;
+				};
+
+				power-domain@MT6858_POWER_DOMAIN_MM_INFRA {
+					reg = <MT6858_POWER_DOMAIN_MM_INFRA>;
+					clocks = <&cksys CLK_TOP_MMINFRA>;
+					clock-names = "mminfra";
+					#address-cells = <1>;
+					#size-cells = <0>;
+					#power-domain-cells = <1>;
+
+					power-domain@MT6858_POWER_DOMAIN_ISP_IMG1 {
+						reg = <MT6858_POWER_DOMAIN_ISP_IMG1>;
+						clocks = <&cksys CLK_TOP_IMG1>;
+						clock-names = "img1";
+						#address-cells = <1>;
+						#size-cells = <0>;
+						#power-domain-cells = <1>;
+
+						power-domain@MT6858_POWER_DOMAIN_ISP_IMG2 {
+							reg = <MT6858_POWER_DOMAIN_ISP_IMG2>;
+							#power-domain-cells = <0>;
+						};
+					};
+
+					power-domain@MT6858_POWER_DOMAIN_ISP_IPE {
+						reg = <MT6858_POWER_DOMAIN_ISP_IPE>;
+						clocks = <&cksys CLK_TOP_IPE>;
+						clock-names = "ipe";
+						#power-domain-cells = <0>;
+					};
+
+					power-domain@MT6858_POWER_DOMAIN_VDE0 {
+						reg = <MT6858_POWER_DOMAIN_VDE0>;
+						clocks = <&cksys CLK_TOP_VDEC>;
+						clock-names = "vdec";
+						#power-domain-cells = <0>;
+					};
+
+					power-domain@MT6858_POWER_DOMAIN_VEN0 {
+						reg = <MT6858_POWER_DOMAIN_VEN0>;
+						clocks = <&cksys CLK_TOP_VENC>;
+						clock-names = "venc";
+						#power-domain-cells = <0>;
+					};
+
+					power-domain@MT6858_POWER_DOMAIN_CAM_MAIN {
+						reg = <MT6858_POWER_DOMAIN_CAM_MAIN>;
+						clocks = <&cksys CLK_TOP_CAM>;
+						#address-cells = <1>;
+						#size-cells = <0>;
+						#power-domain-cells = <1>;
+
+						power-domain@MT6858_POWER_DOMAIN_CAM_SUBA {
+							reg = <MT6858_POWER_DOMAIN_CAM_SUBA>;
+							#power-domain-cells = <0>;
+						};
+
+						power-domain@MT6858_POWER_DOMAIN_CAM_SUBB {
+							reg = <MT6858_POWER_DOMAIN_CAM_SUBB>;
+							#power-domain-cells = <0>;
+						};
+					};
+
+					power-domain@MT6858_POWER_DOMAIN_DIS0 {
+						reg = <MT6858_POWER_DOMAIN_DIS0>;
+						clocks = <&cksys CLK_TOP_DISP0>;
+						clock-names = "dis0";
+						#power-domain-cells = <0>;
+					};
+
+					power-domain@MT6858_POWER_DOMAIN_MM_PROC_DORMANT {
+						reg = <MT6858_POWER_DOMAIN_MM_PROC_DORMANT>;
+						clocks = <&cksys CLK_TOP_MMUP>;
+						clock-names = "mmup";
+						#power-domain-cells = <0>;
+					};
+				};
+
+				power-domain@MT6858_POWER_DOMAIN_CSI_RX {
+					reg = <MT6858_POWER_DOMAIN_CSI_RX>;
+					#power-domain-cells = <0>;
+				};
+
+				power-domain@MT6858_POWER_DOMAIN_SSUSB {
+					reg = <MT6858_POWER_DOMAIN_SSUSB>;
+					#power-domain-cells = <0>;
+				};
+			};
 		};
 
 		watchdog: watchdog@1c00a000 {
